@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Voice Cari icon">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff0b7"/>
+      <stop offset="0.48" stop-color="#d7b46a"/>
+      <stop offset="1" stop-color="#6ad7ff"/>
+    </linearGradient>
+    <filter id="s"><feDropShadow dx="0" dy="18" stdDeviation="24" flood-opacity="0.45"/></filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#080812"/>
+  <circle cx="256" cy="256" r="176" fill="none" stroke="url(#g)" stroke-width="18" opacity="0.9"/>
+  <path d="M164 266c26-82 58-123 96-123s70 41 96 123" fill="none" stroke="url(#g)" stroke-width="28" stroke-linecap="round" filter="url(#s)"/>
+  <path d="M174 314c52 45 112 45 164 0" fill="none" stroke="#fff0b7" stroke-width="24" stroke-linecap="round" opacity=".9"/>
+  <text x="256" y="274" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-weight="900" font-size="74" fill="#fff6d4">VC</text>
+</svg>

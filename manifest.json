@@ -1,0 +1,19 @@
+{
+  "name": "Voice Cari — Authorized Voice Studio",
+  "short_name": "Voice Cari",
+  "description": "Estudio local de voz sintética autorizada: narración, grabación, banco de voz con control de calidad y consentimiento, y clonación mediante motor XTTS 100% local.",
+  "id": "./",
+  "scope": "./",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "any",
+  "lang": "es",
+  "background_color": "#0b0a08",
+  "theme_color": "#0b0a08",
+  "categories": ["productivity", "multimedia"],
+  "icons": [
+    { "src": "assets/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

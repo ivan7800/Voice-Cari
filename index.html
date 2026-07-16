@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="es" data-theme="gold">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <!-- Defensa en profundidad: GitHub Pages no permite cabeceras HTTP, así que la CSP va en meta. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self' http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'none'" />
+
+  <!-- SEO -->
+  <title>Voice Cari — Estudio local de voz sintética autorizada | Universo 404</title>
+  <meta name="description" content="Voice Cari: estudio de voz 100% local. Narración con voces del navegador, grabación de muestras propias, perfiles vocales con consentimiento y paquetes API-ready sin claves. Sin backend, sin subida de audio." />
+  <meta name="keywords" content="voz sintética, narración, text to speech, grabación de voz, audiolibro, TTS, estudio de voz, PWA" />
+  <meta name="author" content="Universo 404" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://ivan7800.github.io/voice-cari/" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Universo 404" />
+  <meta property="og:title" content="Voice Cari — Estudio local de voz sintética autorizada" />
+  <meta property="og:description" content="Narración, grabación local y perfiles vocales con consentimiento. 100% local, sin backend, sin claves API." />
+  <meta property="og:url" content="https://ivan7800.github.io/voice-cari/" />
+  <meta property="og:image" content="https://ivan7800.github.io/voice-cari/assets/icons/icon-512.png" />
+  <meta property="og:locale" content="es_ES" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Voice Cari — Estudio local de voz sintética autorizada" />
+  <meta name="twitter:description" content="Narración, grabación local y perfiles vocales con consentimiento. 100% local y sin claves." />
+  <meta name="twitter:image" content="https://ivan7800.github.io/voice-cari/assets/icons/icon-512.png" />
+
+  <meta name="theme-color" content="#0b0a08" />
+  <link rel="icon" type="image/svg+xml" href="assets/icons/icon.svg" />
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Datos estructurados -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Voice Cari",
+    "alternateName": "Voice Cari — Authorized Voice Studio",
+    "url": "https://ivan7800.github.io/voice-cari/",
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "Web",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+    "description": "Estudio local de voz sintética autorizada: narración con voces del navegador, grabación de muestras, perfiles con consentimiento y paquetes API-ready sin claves.",
+    "inLanguage": "es",
+    "creator": { "@type": "Organization", "name": "Universo 404" }
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#studio">Saltar al contenido principal</a>
+
+  <div class="scanlines" aria-hidden="true"></div>
+
+
+  <!-- Modal de revisión de calidad de muestra -->
+  <div id="qualityModal" class="modal hide" role="dialog" aria-modal="true" aria-labelledby="qualityTitle">
+    <div class="modal-box">
+      <header class="modal-head">
+        <span id="qualityTitle" class="plate-label">REVISIÓN DE MUESTRA</span>
+        <button id="qualityClose" class="icon-btn" aria-label="Cerrar">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="quality-score">
+          <div id="qualityGauge" class="gauge"><span id="qualityValue">–</span></div>
+          <div class="quality-meta">
+            <p id="qualityVerdict" class="quality-verdict">Analizando…</p>
+            <p id="qualityStats" class="muted small"></p>
+          </div>
+        </div>
+        <ul id="qualityIssues" class="quality-issues"></ul>
+        <audio id="qualityPreview" class="player" controls hidden aria-label="Previsualización de la muestra"></audio>
+        <div class="quality-options">
+          <label class="check"><input id="optTrim" type="checkbox" checked /> <span>Recortar silencios de los extremos</span></label>
+          <label class="check"><input id="optNormalize" type="checkbox" checked /> <span>Normalizar volumen (recomendado)</span></label>
+        </div>
+        <label class="field"><span>Nombre de la muestra</span>
+          <input id="qualityName" placeholder="Ej.: María · lectura pausada" />
+        </label>
+        <label class="check consent-line"><input id="qualityConsent" type="checkbox" /> <span>Confirmo que esta voz es mía o de una persona que me ha dado permiso explícito para clonarla.</span></label>
+        <div class="modal-actions">
+          <button id="qualityCancel" class="btn btn-ghost">Cancelar</button>
+          <button id="qualitySave" class="btn btn-primary">Guardar en el banco</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ PUERTA LEGAL ══════════ -->
+  <div id="legalGate" class="legal-gate" role="dialog" aria-modal="true" aria-labelledby="legalTitle" aria-describedby="legalIntro">
+    <article class="legal-card">
+      <header class="module-plate">
+        <span class="plate-label">VOICE CARI · PROTOCOLO DE ENTRADA</span>
+        <span class="led led-rec" aria-hidden="true"></span>
+      </header>
+      <div class="legal-body">
+        <h1 id="legalTitle">Estudio de voz sintética <em>autorizada</em></h1>
+        <p id="legalIntro">
+          Esta consola está pensada para narración, audiolibros, prototipos y voces propias o con permiso.
+          No debe usarse para suplantar, engañar, acosar, estafar ni clonar voces de terceros sin permiso verificable.
+        </p>
+        <div class="legal-checks" role="group" aria-label="Condiciones de uso">
+          <label class="check">
+            <input id="legalOwnVoice" type="checkbox" />
+            <span>Confirmo que solo usaré mi voz o voces con permiso explícito.</span>
+          </label>
+          <label class="check">
+            <input id="legalSynthetic" type="checkbox" />
+            <span>Acepto identificar como sintético cualquier audio generado o transformado.</span>
+          </label>
+          <label class="check">
+            <input id="legalLocal" type="checkbox" />
+            <span>Entiendo que la clonación se ejecuta en un motor local bajo mi control y solo con voces autorizadas.</span>
+          </label>
+        </div>
+        <div id="legalFull" class="legal-full" hidden>
+          <h2>Aviso de uso responsable</h2>
+          <p>Voice Cari es una herramienta para narración, accesibilidad, audiolibros, pruebas de voz y preparación de perfiles autorizados. Queda prohibido su uso para:</p>
+          <ul>
+            <li>Suplantar a una persona o crear mensajes falsos atribuidos a terceros.</li>
+            <li>Clonar voces sin consentimiento explícito y verificable.</li>
+            <li>Fraudes, llamadas engañosas, acoso, extorsión o manipulación.</li>
+            <li>Ocultar que un audio es sintético cuando pueda inducir a error.</li>
+          </ul>
+          <p>El usuario es responsable de obtener permisos y cumplir la ley aplicable sobre voz, imagen, datos personales y privacidad. Esta versión trabaja íntegramente en local: no clona voces reales dentro del navegador y no envía audio a ningún servidor.</p>
+        </div>
+        <div class="legal-actions">
+          <button id="acceptLegal" class="btn btn-primary" disabled>Entrar en el estudio</button>
+          <button id="readLegal" class="btn btn-ghost" aria-expanded="false" aria-controls="legalFull">Ver aviso completo</button>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <!-- ══════════ CABECERA ══════════ -->
+  <header class="topbar">
+    <a class="brand" href="#studio" aria-label="Voice Cari, ir al inicio">
+      <span class="brand-mark" aria-hidden="true">
+        <span class="brand-bars"><i></i><i></i><i></i><i></i></span>
+      </span>
+      <span class="brand-text">
+        <strong>VOICE CARI</strong>
+        <small>Authorized Voice Studio</small>
+      </span>
+    </a>
+
+    <nav class="nav" aria-label="Secciones del estudio">
+      <button data-section="studio" class="nav-link active" aria-current="page">Studio</button>
+      <button data-section="recorder" class="nav-link">Grabador</button>
+      <button data-section="clone" class="nav-link">Clonar</button>
+      <button data-section="profiles" class="nav-link">Voces</button>
+      <button data-section="library" class="nav-link">Biblioteca</button>
+      <button data-section="integrations" class="nav-link">API</button>
+      <button data-section="help" class="nav-link">Ayuda</button>
+    </nav>
+
+    <div class="top-actions">
+      <label class="visually-hidden" for="themeSelect">Seleccionar skin</label>
+      <select id="themeSelect" class="select select-compact">
+        <option value="gold">Gold Noir</option>
+        <option value="cari">Cari Blue</option>
+        <option value="crimson">Crimson</option>
+        <option value="aurora">Aurora</option>
+      </select>
+      <button id="resetApp" class="btn btn-danger-ghost btn-small">Reset</button>
+    </div>
+  </header>
+
+  <main class="shell" id="main">
+    <!-- ══════════ HERO ══════════ -->
+    <section class="hero" aria-labelledby="heroTitle">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="led led-safe" aria-hidden="true"></span> Consola local · sin backend · sin claves</p>
+        <h2 id="heroTitle">Voz sintética,<br />narración y muestras<br /><span class="accent-text">con consentimiento.</span></h2>
+        <p class="hero-sub">
+          Crea perfiles vocales autorizados, graba muestras limpias, prueba narración en vivo con las voces
+          de tu navegador y exporta paquetes listos para motores externos profesionales.
+        </p>
+        <div class="hero-actions">
+          <button class="btn btn-primary" data-jump="studio">Crear narración</button>
+          <button class="btn btn-outline" data-jump="recorder">Grabar muestra</button>
+        </div>
+      </div>
+      <div class="hero-console" aria-hidden="true">
+        <div class="eq" id="heroEq">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <div class="console-readout">
+          <span>MODO SEGURO</span>
+          <span>LOCAL / OFFLINE</span>
+          <span>v3.3.0</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ STUDIO ══════════ -->
+    <section id="studio" class="section active" aria-label="Studio de narración">
+      <div class="grid-2">
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">MÓDULO 01 · EDITOR DE NARRACIÓN</span>
+            <button id="clearText" class="btn btn-ghost btn-small">Limpiar</button>
+          </header>
+          <div class="module-body">
+            <label class="visually-hidden" for="scriptText">Texto de la narración</label>
+            <textarea id="scriptText" spellcheck="true" placeholder="Pega aquí el texto de la narración, capítulo, tráiler o locución…"></textarea>
+            <div class="meta-row" aria-live="polite">
+              <span><strong id="charCount">0</strong> caracteres</span>
+              <span><strong id="wordCount">0</strong> palabras</span>
+              <span><strong id="readingTime">0</strong> min aprox.</span>
+            </div>
+            <div class="preset-row" role="group" aria-label="Presets de narración">
+              <button class="chip" data-preset="terror">Terror cósmico</button>
+              <button class="chip" data-preset="trailer">Tráiler oscuro</button>
+              <button class="chip" data-preset="audiobook">Audiolibro</button>
+              <button class="chip" data-preset="corporate">Corporativo</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">MÓDULO 02 · MOTOR DE VOZ LOCAL</span>
+            <span id="voiceSupport" class="pill">Detectando…</span>
+          </header>
+          <div class="module-body">
+            <label class="field">
+              <span>Voz disponible</span>
+              <select id="voiceSelect" class="select"></select>
+            </label>
+
+            <div class="sliders">
+              <label class="slider">
+                <span class="slider-head">Velocidad <output id="rateOut">1.00</output></span>
+                <input id="rate" type="range" min="0.5" max="1.7" step="0.05" value="1" />
+              </label>
+              <label class="slider">
+                <span class="slider-head">Tono <output id="pitchOut">1.00</output></span>
+                <input id="pitch" type="range" min="0.5" max="2" step="0.05" value="1" />
+              </label>
+              <label class="slider">
+                <span class="slider-head">Volumen <output id="volumeOut">0.90</output></span>
+                <input id="volume" type="range" min="0" max="1" step="0.05" value="0.9" />
+              </label>
+            </div>
+
+            <div class="transport" role="group" aria-label="Controles de reproducción">
+              <button id="speakBtn" class="btn btn-primary">Reproducir</button>
+              <button id="pauseBtn" class="btn btn-outline">Pausa</button>
+              <button id="resumeBtn" class="btn btn-outline">Continuar</button>
+              <button id="stopBtn" class="btn btn-danger">Detener</button>
+              <span id="speakStatus" class="pill" role="status" aria-live="polite">Listo</span>
+            </div>
+
+            <p class="notice">
+              <strong>Importante:</strong> el TTS nativo puede leer en vivo, pero no todos los navegadores
+              permiten exportar esa voz como audio. Para un WAV/MP3 final con un motor profesional, usa
+              el paquete API-ready de la pestaña API con un servicio autorizado.
+            </p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ══════════ GRABADOR ══════════ -->
+    <section id="recorder" class="section" aria-label="Grabador de voz">
+      <div class="grid-2">
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">MÓDULO 03 · GRABADOR DE MUESTRA</span>
+            <span class="plate-status"><span id="recLed" class="led" aria-hidden="true"></span><span id="recordStatus" class="pill" role="status" aria-live="polite">Inactivo</span></span>
+          </header>
+          <div class="module-body">
+            <p class="muted">
+              Graba una muestra limpia de 30–90 segundos con tu propia voz. Se guarda solo en este navegador
+              hasta que la descargues o la borres.
+            </p>
+            <div class="recorder-card">
+              <canvas id="meter" width="720" height="140" role="img" aria-label="Medidor de forma de onda del micrófono"></canvas>
+              <div class="timer" id="timer" aria-hidden="true">00:00</div>
+            </div>
+            <div class="transport" role="group" aria-label="Controles de grabación">
+              <button id="startRec" class="btn btn-rec">● Grabar</button>
+              <button id="stopRec" class="btn btn-danger" disabled>Detener</button>
+              <button id="downloadRec" class="btn btn-outline" disabled>Descargar</button>
+              <button id="deleteRec" class="btn btn-ghost" disabled>Borrar</button>
+              <button id="saveToBank" class="btn btn-primary" disabled>Añadir al banco de voz</button>
+            </div>
+            <audio id="recordedAudio" class="player" controls hidden aria-label="Muestra de voz grabada"></audio>
+          </div>
+        </article>
+
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">MÓDULO 04 · CALIDAD DE MUESTRA</span>
+          </header>
+          <div class="module-body">
+            <ul class="spec-list">
+              <li><span>Entorno silencioso</span><strong id="qNoise">Manual</strong></li>
+              <li><span>Duración recomendada</span><strong id="qDuration">30–90 s</strong></li>
+              <li><span>Formato exportado</span><strong id="qFormat">WebM/Opus</strong></li>
+              <li><span>Uso permitido</span><strong>Voz propia / autorizada</strong></li>
+            </ul>
+            <div class="sample-script">
+              <h4>Texto de prueba recomendado</h4>
+              <p>
+                «Esta es una muestra autorizada para Voice Cari. Confirmo que la voz grabada me pertenece
+                o tengo permiso explícito para usarla. La noche cae sobre la ciudad, y cada palabra
+                conserva su propia sombra.»
+              </p>
+              <button id="insertSampleText" class="btn btn-outline btn-small">Usar texto de prueba</button>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+
+    <!-- ══════════ CLONACIÓN LOCAL ══════════ -->
+    <section id="clone" class="section" aria-label="Clonación de voz local">
+      <div class="grid-2">
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">MÓDULO C1 · MOTOR LOCAL DE CLONACIÓN</span>
+            <span id="engineStatus" class="pill">Sin comprobar</span>
+          </header>
+          <div class="module-body">
+            <p class="muted">
+              La clonación se ejecuta en <strong>tu propio ordenador</strong> con un motor XTTS local
+              (carpeta <code>server/</code> del proyecto). La voz nunca sale de tu máquina.
+            </p>
+            <label class="field"><span>Dirección del motor local</span>
+              <input id="engineUrl" value="http://127.0.0.1:8020" spellcheck="false" />
+            </label>
+            <div class="btn-stack">
+              <button id="testEngine" class="btn btn-outline">Probar conexión</button>
+            </div>
+            <p class="notice" id="engineInfo">
+              Arranca el motor con <code>python server/xtts_server.py</code>. La primera vez descargará
+              el modelo (~1,9&nbsp;GB). Para probar la tubería sin modelo: <code>VOICE_CARI_DEMO=1</code>.
+            </p>
+          </div>
+        </article>
+
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">MÓDULO C2 · BANCO DE VOZ</span>
+            <span class="plate-status"><button id="exportBank" class="btn btn-ghost btn-small">Exportar banco</button><span id="bankCount" class="pill">0 muestras</span></span>
+          </header>
+          <div class="module-body">
+            <p class="muted">
+              Muestras guardadas en este navegador (IndexedDB), convertidas a WAV.
+              Graba en el <strong>Grabador</strong> y pulsa «Añadir al banco de voz», o importa un archivo.
+              <strong>Exportar banco</strong> genera un ZIP con los WAV y su registro de consentimiento: guárdalo en varios sitios; es tu copia de seguridad de la voz.
+            </p>
+            <label class="field"><span>Importar audio suelto o banco completo (.zip)</span>
+              <input id="bankImport" type="file" accept="audio/*,.zip,application/zip" />
+            </label>
+            <div class="bank-toolbar">
+              <button id="mergeSamples" class="btn btn-outline btn-small" disabled>Fusionar seleccionadas</button>
+              <button id="recordConsent" class="btn btn-outline btn-small">Grabar consentimiento</button>
+            </div>
+            <div id="bankList" class="cards-list is-empty">El banco está vacío. Graba o importa la primera muestra.</div>
+          </div>
+        </article>
+      </div>
+
+      <div class="grid-2">
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">MÓDULO C3 · GENERAR CON VOZ CLONADA</span>
+            <span id="cloneStatus" class="pill" role="status" aria-live="polite">Listo</span>
+          </header>
+          <div class="module-body">
+            <label class="field"><span>Muestra de referencia</span>
+              <select id="cloneSample" class="select"><option value="">— elige una muestra del banco —</option></select>
+            </label>
+            <label class="field"><span>Idioma del texto</span>
+              <select id="cloneLang" class="select">
+                <option value="es" selected>Español</option>
+                <option value="en">English</option>
+                <option value="pt">Português</option>
+                <option value="fr">Français</option>
+                <option value="it">Italiano</option>
+                <option value="de">Deutsch</option>
+              </select>
+            </label>
+            <label class="check">
+              <input id="cloneConsent" type="checkbox" />
+              <span>Confirmo que esta voz es mía o de una persona que me ha dado permiso explícito para clonarla.</span>
+            </label>
+            <div class="btn-stack">
+              <button id="cloneGo" class="btn btn-primary">Generar con el texto del Studio</button>
+            </div>
+            <audio id="cloneAudio" class="player" controls hidden aria-label="Audio generado con voz clonada"></audio>
+            <div class="btn-stack">
+              <button id="cloneDownload" class="btn btn-outline" disabled>Descargar WAV</button>
+            </div>
+            <p class="notice">
+              El audio generado es <strong>voz sintética</strong>: identifícalo como tal si lo compartes.
+              El texto se toma del editor de la pestaña <strong>Studio</strong>.
+            </p>
+          </div>
+        </article>
+
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">MÓDULO C4 · GUION DE BANCO DE VOZ</span>
+          </header>
+          <div class="module-body">
+            <p class="muted">
+              Para preservar una voz, graba <strong>cuanto antes y con calma</strong>: habitación silenciosa,
+              micrófono a un palmo, tono natural. XTTS funciona desde 10–30&nbsp;s, pero guarda
+              <strong>varias muestras</strong> (lectura neutra, alegre, pausada) y también audio largo
+              en bruto para el futuro: los motores mejorarán y ese archivo será oro.
+            </p>
+            <div class="sample-script">
+              <h4>Frases fonéticamente ricas (léelas seguidas, 30–60 s)</h4>
+              <p>«El jardín guardaba un quiosco añejo junto al chopo, y allí charlábamos hasta que la lluvia fina nos empujaba dentro.»</p>
+              <p>«¿Quién dijo que el zumo de cereza exige azúcar? Yo prefiero exprimirlo y beberlo así, fresco y un poco ácido.»</p>
+              <p>«¡Qué maravilla despertar sin prisa! El café huele a domingo y a pan recién hecho.»</p>
+              <p>«Treinta y seis, cuarenta y siete, noventa y ocho: los números también tienen música cuando se leen despacio.»</p>
+              <p>«Whisky, kiwi, examen, taxi: hasta las palabras raras suenan nuestras cuando las dice alguien querido.»</p>
+            </div>
+            <div class="sample-script">
+              <h4>Y sobre todo, frases personales</h4>
+              <p>Saludos habituales, expresiones propias, nombres de la familia, «te quiero», frases que dice cada día. Son las que más se echan de menos y las que mejor anclan su forma de hablar.</p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ══════════ PERFILES ══════════ -->
+    <section id="profiles" class="section" aria-label="Perfiles vocales">
+      <div class="grid-2">
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">MÓDULO 05 · NUEVO PERFIL VOCAL</span>
+          </header>
+          <div class="module-body">
+            <div class="form-grid">
+              <label class="field"><span>Nombre del perfil</span><input id="profileName" placeholder="Ej. Narrador oscuro propio" /></label>
+              <label class="field"><span>Uso permitido</span>
+                <select id="profileUse" class="select">
+                  <option>Audiolibro propio</option>
+                  <option>Tráiler</option>
+                  <option>Demo interna</option>
+                  <option>Accesibilidad</option>
+                  <option>Otro autorizado</option>
+                </select>
+              </label>
+              <label class="field"><span>Tono</span><input id="profileTone" placeholder="grave, cálido, seco, documental…" /></label>
+              <label class="field"><span>Consentimiento</span>
+                <select id="profileConsent" class="select">
+                  <option value="own">Voz propia</option>
+                  <option value="authorized">Permiso explícito documentado</option>
+                </select>
+              </label>
+            </div>
+            <button id="saveProfile" class="btn btn-primary">Guardar perfil</button>
+          </div>
+        </article>
+
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">VOCES AUTORIZADAS</span>
+            <button id="exportProfiles" class="btn btn-ghost btn-small">Exportar JSON</button>
+          </header>
+          <div class="module-body">
+            <div id="profileList" class="cards-list is-empty">Aún no hay perfiles. Crea el primero con el formulario.</div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ══════════ BIBLIOTECA ══════════ -->
+    <section id="library" class="section" aria-label="Biblioteca de proyectos">
+      <div class="grid-2">
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">MÓDULO 06 · GUARDAR SESIÓN</span>
+          </header>
+          <div class="module-body">
+            <label class="field"><span>Nombre del proyecto</span><input id="projectName" placeholder="Ej. Capítulo 1 — Universo 404" /></label>
+            <div class="btn-stack">
+              <button id="saveProject" class="btn btn-primary">Guardar proyecto local</button>
+              <button id="exportProject" class="btn btn-outline">Exportar paquete JSON</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">PROYECTOS LOCALES</span>
+            <button id="clearProjects" class="btn btn-ghost btn-small">Vaciar</button>
+          </header>
+          <div class="module-body">
+            <div id="projectList" class="cards-list is-empty">No hay proyectos guardados. Escribe en el Studio y guarda tu primera sesión.</div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ══════════ API ══════════ -->
+    <section id="integrations" class="section" aria-label="Preparador de integración API">
+      <div class="grid-2">
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">MÓDULO 07 · PREPARADOR API EXTERNA</span>
+            <span class="pill pill-safe">Sin clave expuesta</span>
+          </header>
+          <div class="module-body">
+            <p class="muted">
+              GitHub Pages es público: nunca incluyas claves API en el código. Esta sección genera un
+              paquete de producción para enviarlo manualmente a un motor autorizado o a un backend propio seguro.
+            </p>
+            <div class="form-grid">
+              <label class="field"><span>Proveedor objetivo</span>
+                <select id="apiProvider" class="select">
+                  <option>ElevenLabs / voice clone autorizado</option>
+                  <option>Resemble / voice clone autorizado</option>
+                  <option>Servidor local XTTS/OpenVoice</option>
+                  <option>Backend propio</option>
+                </select>
+              </label>
+              <label class="field"><span>ID de voz / perfil externo (opcional)</span><input id="externalVoiceId" placeholder="voice_id opcional" /></label>
+            </div>
+            <button id="buildApiPack" class="btn btn-primary">Generar paquete API-ready</button>
+          </div>
+        </article>
+
+        <article class="module">
+          <header class="module-plate">
+            <span class="plate-label">SALIDA TÉCNICA · PAYLOAD SEGURO</span>
+            <button id="copyPayload" class="btn btn-ghost btn-small">Copiar</button>
+          </header>
+          <div class="module-body">
+            <pre id="payloadOut" class="code-block" tabindex="0">Aún no has generado ningún paquete.</pre>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ══════════ AYUDA ══════════ -->
+    <section id="help" class="section" aria-label="Ayuda y uso rápido">
+      <article class="module">
+        <header class="module-plate">
+          <span class="plate-label">MANUAL RÁPIDO · CÓMO USAR VOICE CARI</span>
+        </header>
+        <div class="module-body">
+          <div class="help-grid">
+            <div class="help-step"><strong>Acepta el uso seguro</strong><p>La consola exige consentimiento antes de trabajar con voces.</p></div>
+            <div class="help-step"><strong>Escribe o pega texto</strong><p>Usa presets para terror, tráiler, audiolibro o locución.</p></div>
+            <div class="help-step"><strong>Prueba voces locales</strong><p>El navegador aporta voces distintas según sistema y dispositivo.</p></div>
+            <div class="help-step"><strong>Graba una muestra</strong><p>Descárgala para archivo propio o para un motor externo autorizado.</p></div>
+            <div class="help-step"><strong>Guarda perfiles</strong><p>Registra nombre, uso, tono y tipo de consentimiento.</p></div>
+            <div class="help-step"><strong>Exporta paquete API</strong><p>Úsalo con backend seguro o proveedor profesional; nunca con claves públicas.</p></div>
+          </div>
+          <p class="notice">
+            <strong>Cómo funciona la clonación:</strong> el navegador no clona por sí solo; la síntesis con voz clonada
+            la hace el motor local XTTS de la carpeta <code>server/</code>, en tu propio ordenador y sin conexión externa.
+          </p>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>VOICE CARI v3.3.0 · Universo 404 · GitHub Pages Ready</span>
+    <span>Datos locales · consentimiento · voz sintética identificable</span>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <noscript><div class="notice noscript-notice">Voice Cari necesita JavaScript activado para funcionar.</div></noscript>
+  <script src="app.js"></script>
+</body>
+</html>

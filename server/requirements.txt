@@ -1,0 +1,6 @@
+# Motor de clonación (descarga PyTorch; instalación pesada, solo la primera vez)
+coqui-tts>=0.24.0
+# Servidor local
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
