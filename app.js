@@ -1,13 +1,18 @@
 /* ═══════════════════════════════════════════════════════════════════
-   VOICE CARI v3.3.1 — Authorized Voice Studio · Universo 404
+   VOICE CARI v3.3.2 — Authorized Voice Studio · Universo 404
    Frontend estático + motor XTTS local opcional. Sin claves en cliente.
    Compatible con datos de v1.x (mismas claves voiceCari:*).
    ═══════════════════════════════════════════════════════════════════ */
 (() => {
   'use strict';
 
-  const APP_VERSION = '3.3.1';
+  const APP_VERSION = '3.3.2';
   const LEGAL_VERSION = 2;
+  const MIN_SAMPLE_SECONDS = 3;
+  const MAX_SAMPLE_SECONDS = 300;
+  const MAX_RECORDING_MS = MAX_SAMPLE_SECONDS * 1000;
+  const MAX_CLONE_OUTPUT_BYTES = 100 * 1024 * 1024;
+  const ALLOWED_THEMES = new Set(['gold', 'cari', 'crimson', 'aurora']);
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
@@ -39,6 +44,17 @@
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)+/g, '') || 'voice-cari';
+
+  const boundedText = (value, max, fallback = '') => {
+    const text = typeof value === 'string' ? value.trim() : fallback;
+    return text.slice(0, max);
+  };
+
+  const validIsoDate = value => {
+    if (typeof value !== 'string') return null;
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+  };
 
   const debounce = (fn, wait = 300) => {
     let t;
@@ -72,6 +88,7 @@
     audioExt: 'webm',
     timerStart: null,
     timerInterval: null,
+    recordingTimeout: null,
     audioCtx: null,
     analyser: null,
     meterAnim: null,
@@ -96,7 +113,8 @@
       const el = $(sel);
       if (!el) return;
       if ('inert' in el) el.inert = isInert;
-      el.setAttribute('aria-hidden', String(isInert));
+      if (isInert) el.setAttribute('aria-hidden', 'true');
+      else el.removeAttribute('aria-hidden');
     });
   }
 
@@ -120,7 +138,10 @@
 
   function initLegal() {
     const accepted = store.get('legalAccepted', null);
-    const isCurrentAcceptance = accepted && typeof accepted === 'object' && accepted.consentVersion === LEGAL_VERSION;
+    const isCurrentAcceptance = accepted
+      && typeof accepted === 'object'
+      && accepted.consentVersion === LEGAL_VERSION
+      && typeof accepted.acceptedAt === 'string';
     if (isCurrentAcceptance) {
       legalGate.classList.add('hide');
       setAppInert(false);
@@ -183,7 +204,8 @@
 
   /* ── Skins ────────────────────────────────────────────────────── */
   function initTheme() {
-    const saved = store.get('theme', 'gold');
+    const stored = store.get('theme', 'gold');
+    const saved = ALLOWED_THEMES.has(stored) ? stored : 'gold';
     document.documentElement.dataset.theme = saved;
     $('#themeSelect').value = saved;
     $('#themeSelect').addEventListener('change', event => {
@@ -303,8 +325,11 @@
         current += sentence;
       }
       while (current.length > maxLen) {
-        chunks.push(current.slice(0, maxLen).trim());
-        current = current.slice(maxLen);
+        const candidate = current.slice(0, maxLen + 1);
+        const splitAt = Math.max(candidate.lastIndexOf(' '), candidate.lastIndexOf('\n'));
+        const cut = splitAt > Math.floor(maxLen * 0.55) ? splitAt : maxLen;
+        chunks.push(current.slice(0, cut).trim());
+        current = current.slice(cut).trimStart();
       }
     }
     if (current.trim()) chunks.push(current.trim());
@@ -354,8 +379,17 @@
     ['rate', 'pitch', 'volume'].forEach(id => {
       const el = $(`#${id}`);
       const out = $(`#${id}Out`);
-      const update = () => { out.value = Number(el.value).toFixed(2); store.set(id, el.value); };
-      el.value = store.get(id, el.value);
+      const min = Number(el.min);
+      const max = Number(el.max);
+      const fallback = Number(el.value);
+      const stored = Number(store.get(id, fallback));
+      el.value = String(Number.isFinite(stored) ? Math.min(max, Math.max(min, stored)) : fallback);
+      const update = () => {
+        const value = Math.min(max, Math.max(min, Number(el.value)));
+        el.value = String(value);
+        out.value = value.toFixed(2);
+        store.set(id, el.value);
+      };
       update();
       el.addEventListener('input', update);
     });
@@ -491,7 +525,11 @@
 
       state.recorder.ondataavailable = e => { if (e.data && e.data.size) state.chunks.push(e.data); };
       state.recorder.onstop = finishRecording;
-      state.recorder.onerror = () => { showToast('Error de grabación del navegador.'); cleanupRecording(); };
+      state.recorder.onerror = () => {
+        $('#recordStatus').textContent = 'Error';
+        showToast('Error de grabación del navegador.');
+        cleanupRecording();
+      };
       state.recorder.start(500);
 
       state.timerStart = Date.now();
@@ -499,6 +537,12 @@
       state.timerInterval = setInterval(() => {
         $('#timer').textContent = formatTime(Date.now() - state.timerStart);
       }, 250);
+      state.recordingTimeout = setTimeout(() => {
+        if (state.recorder?.state !== 'inactive') {
+          showToast('Se alcanzó el máximo de 5 minutos. La grabación se detendrá automáticamente.');
+          stopRecording();
+        }
+      }, MAX_RECORDING_MS);
 
       $('#recordStatus').textContent = 'Grabando';
       setRecordingUi(true);
@@ -520,6 +564,9 @@
 
   function cleanupRecording() {
     clearInterval(state.timerInterval);
+    clearTimeout(state.recordingTimeout);
+    state.timerInterval = null;
+    state.recordingTimeout = null;
     if (state.meterAnim) cancelAnimationFrame(state.meterAnim);
     state.meterAnim = null;
     state.analyser = null;
@@ -585,7 +632,19 @@
   }
 
   /* ── Perfiles vocales (con delegación de eventos) ─────────────── */
-  const getProfiles = () => store.get('profiles', []);
+  const getProfiles = () => {
+    const profiles = store.get('profiles', []);
+    if (!Array.isArray(profiles)) return [];
+    return profiles.slice(0, 100).filter(profile => profile && typeof profile === 'object').map(profile => ({
+      id: boundedText(profile.id, 100, uid()),
+      name: boundedText(profile.name, 80, 'Perfil sin nombre'),
+      use: boundedText(profile.use, 80, 'Otro autorizado'),
+      tone: boundedText(profile.tone, 120),
+      consent: profile.consent === 'authorized' ? 'authorized' : 'own',
+      consentLabel: profile.consent === 'authorized' ? 'Permiso documentado' : 'Voz propia',
+      createdAt: validIsoDate(profile.createdAt) || new Date().toISOString()
+    }));
+  };
   function setProfiles(profiles) { store.set('profiles', profiles); renderProfiles(); }
 
   function renderProfiles() {
@@ -623,14 +682,14 @@
     });
 
     $('#saveProfile').addEventListener('click', () => {
-      const name = $('#profileName').value.trim();
+      const name = boundedText($('#profileName').value, 80);
       if (!name) { $('#profileName').focus(); return showToast('Pon un nombre al perfil vocal.'); }
       const consent = $('#profileConsent').value;
       const profile = {
         id: uid(),
         name,
         use: $('#profileUse').value,
-        tone: $('#profileTone').value.trim(),
+        tone: boundedText($('#profileTone').value, 120),
         consent,
         consentLabel: consent === 'own' ? 'Voz propia' : 'Permiso documentado',
         createdAt: new Date().toISOString()
@@ -663,7 +722,7 @@
       version: APP_VERSION,
       exportedAt: new Date().toISOString(),
       legal: store.get('legalAccepted', null),
-      project: $('#projectName').value.trim() || 'Proyecto Voice Cari',
+      project: boundedText($('#projectName').value, 100, 'Proyecto Voice Cari') || 'Proyecto Voice Cari',
       text,
       stats: {
         chars: trimmed.length,
@@ -681,7 +740,19 @@
     };
   }
 
-  const getProjects = () => store.get('projects', []);
+  const getProjects = () => {
+    const projects = store.get('projects', []);
+    if (!Array.isArray(projects)) return [];
+    return projects.slice(0, 30).filter(project => project && typeof project === 'object').map(project => ({
+      ...project,
+      id: boundedText(project.id, 100, uid()),
+      project: boundedText(project.project, 100, 'Proyecto Voice Cari'),
+      text: typeof project.text === 'string' ? project.text.slice(0, 100000) : '',
+      exportedAt: validIsoDate(project.exportedAt) || new Date().toISOString(),
+      settings: project.settings && typeof project.settings === 'object' ? project.settings : {},
+      stats: project.stats && typeof project.stats === 'object' ? project.stats : {}
+    }));
+  };
   function setProjects(projects) { store.set('projects', projects); renderProjects(); }
 
   function renderProjects() {
@@ -774,7 +845,7 @@
       const payload = currentProjectPayload();
       payload.integration = {
         provider: $('#apiProvider').value,
-        externalVoiceId: $('#externalVoiceId').value.trim() || null,
+        externalVoiceId: boundedText($('#externalVoiceId').value, 200) || null,
         recommendedFlow: [
           'Verificar consentimiento antes de procesar la voz.',
           'Enviar muestra vocal solo a un backend seguro o proveedor autorizado.',
@@ -783,7 +854,7 @@
         ],
         exampleRequestShape: {
           text: payload.text.slice(0, 5000),
-          voice_id: $('#externalVoiceId').value.trim() || 'VOICE_ID_AUTORIZADO',
+          voice_id: boundedText($('#externalVoiceId').value, 200) || 'VOICE_ID_AUTORIZADO',
           model: 'external-authorized-tts-or-clone-engine',
           output_format: 'mp3_or_wav'
         }
@@ -811,7 +882,10 @@
       return new Promise((resolve, reject) => {
         const req = indexedDB.open('voiceCariDB', 1);
         req.onupgradeneeded = () => req.result.createObjectStore('samples', { keyPath: 'id' });
-        req.onsuccess = () => resolve(req.result);
+        req.onsuccess = () => {
+          req.result.onversionchange = () => req.result.close();
+          resolve(req.result);
+        };
         req.onerror = () => reject(req.error);
       });
     },
@@ -819,10 +893,24 @@
       const db = await this.open();
       return new Promise((resolve, reject) => {
         const transaction = db.transaction('samples', mode);
-        transaction.oncomplete = transaction.onabort = () => db.close();
-        const req = fn(transaction.objectStore('samples'));
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
+        let result;
+        transaction.oncomplete = () => { db.close(); resolve(result); };
+        transaction.onabort = () => {
+          const error = transaction.error || new Error('La operación de IndexedDB fue cancelada.');
+          db.close();
+          reject(error);
+        };
+        transaction.onerror = () => { /* onabort entrega el error final */ };
+        let req;
+        try {
+          req = fn(transaction.objectStore('samples'));
+        } catch (error) {
+          db.close();
+          reject(error);
+          return;
+        }
+        req.onsuccess = () => { result = req.result; };
+        req.onerror = () => { /* la transacción se abortará y propagará el error */ };
       });
     },
     all() { return this.tx('readonly', s => s.getAll()); },
@@ -837,11 +925,21 @@
 
   async function blobToFloat(blob, targetRate = TARGET_RATE) {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!AudioCtx || !OfflineCtx) throw new Error('El navegador no ofrece el pipeline de audio necesario.');
     const decoder = new AudioCtx();
-    const decoded = await decoder.decodeAudioData(await blob.arrayBuffer());
-    decoder.close().catch(() => {});
+    let decoded;
+    try {
+      decoded = await decoder.decodeAudioData(await blob.arrayBuffer());
+    } finally {
+      decoder.close().catch(() => {});
+    }
+    if (!Number.isFinite(decoded.duration) || decoded.duration <= 0) throw new Error('El audio no tiene una duración válida.');
+    if (decoded.duration > MAX_SAMPLE_SECONDS) {
+      throw new Error(`La muestra supera el máximo de ${MAX_SAMPLE_SECONDS / 60} minutos.`);
+    }
     const frames = Math.max(1, Math.ceil(decoded.duration * targetRate));
-    const offline = new OfflineAudioContext(1, frames, targetRate);
+    const offline = new OfflineCtx(1, frames, targetRate);
     const source = offline.createBufferSource();
     source.buffer = decoded;
     source.connect(offline.destination);
@@ -944,11 +1042,12 @@
   }
 
   /* ── Normalización de pico (headroom para evitar clipping) ────── */
-  function normalizePeak(pcm, targetDb = -1) {
+  function normalizePeak(pcm, targetDb = -1, maxGainDb = 18) {
     let peak = 0;
     for (let i = 0; i < pcm.length; i++) { const a = Math.abs(pcm[i]); if (a > peak) peak = a; }
-    if (peak === 0) return pcm;
-    const gain = Math.pow(10, targetDb / 20) / peak;
+    if (peak < 0.003) return pcm;
+    const targetGain = Math.pow(10, targetDb / 20) / peak;
+    const gain = Math.min(targetGain, Math.pow(10, maxGainDb / 20));
     const out = new Float32Array(pcm.length);
     for (let i = 0; i < pcm.length; i++) out[i] = Math.max(-1, Math.min(1, pcm[i] * gain));
     return out;
@@ -994,8 +1093,9 @@
       const { pcm } = await blobToFloat(blob);
       pendingPcm = pcm;
       pendingKind = kind;
-    } catch {
-      return showToast('No se pudo leer el audio. Prueba con otro archivo o vuelve a grabar.');
+    } catch (error) {
+      const detail = boundedText(error?.message, 140);
+      return showToast(detail || 'No se pudo leer el audio. Prueba con otro archivo o vuelve a grabar.');
     }
     const analysis = analyzeSample(pendingPcm);
     const verdict = verdictFor(analysis.score);
@@ -1032,6 +1132,7 @@
     else consentLine.style.display = '';
 
     qualityReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setAppInert(true);
     $('#qualityModal').classList.remove('hide');
     $('#qualityName').focus();
   }
@@ -1040,6 +1141,7 @@
     $('#qualityModal').classList.add('hide');
     if (pendingPreviewUrl) { URL.revokeObjectURL(pendingPreviewUrl); pendingPreviewUrl = null; }
     pendingPcm = null;
+    setAppInert(false);
     const returnTo = qualityReturnFocus;
     qualityReturnFocus = null;
     if (returnTo?.isConnected) returnTo.focus();
@@ -1067,18 +1169,31 @@
   }
 
   async function confirmQualitySave() {
-    if (!pendingPcm) return;
-    const name = $('#qualityName').value.trim();
+    if (!pendingPcm || $('#qualitySave').disabled) return;
+    const name = boundedText($('#qualityName').value, 80);
     if (!name) { $('#qualityName').focus(); return showToast('Ponle un nombre a la muestra.'); }
     if (!$('#qualityConsent').checked) { $('#qualityConsent').focus(); return showToast('Confirma el consentimiento para guardar.'); }
 
+    const sourceAnalysis = analyzeSample(pendingPcm);
+    if (sourceAnalysis.silent) return showToast('No se detecta voz útil. Graba o importa otra muestra.');
+    if (sourceAnalysis.duration < MIN_SAMPLE_SECONDS) {
+      return showToast(`La muestra debe durar al menos ${MIN_SAMPLE_SECONDS} segundos.`);
+    }
+    if (sourceAnalysis.duration > MAX_SAMPLE_SECONDS) {
+      return showToast(`La muestra no puede superar ${MAX_SAMPLE_SECONDS / 60} minutos.`);
+    }
+
     let pcm = pendingPcm;
     if ($('#optTrim').checked) pcm = trimSilence(pcm);
+    const trimmedAnalysis = analyzeSample(pcm);
+    if (trimmedAnalysis.silent || trimmedAnalysis.duration < MIN_SAMPLE_SECONDS) {
+      return showToast(`Tras recortar, la muestra debe conservar al menos ${MIN_SAMPLE_SECONDS} segundos de voz útil.`);
+    }
     if ($('#optNormalize').checked) pcm = normalizePeak(pcm);
     const analysis = analyzeSample(pcm);
-    if (analysis.silent) return showToast('No se detecta voz útil. Graba o importa otra muestra.');
     const wav = floatToWav(pcm);
 
+    $('#qualitySave').disabled = true;
     try {
       await idb.put({
         id: uid(), name, createdAt: new Date().toISOString(),
@@ -1094,6 +1209,8 @@
         : `Muestra «${name}» guardada (calidad ${analysis.score}/100).`);
     } catch {
       showToast('No se pudo guardar la muestra.');
+    } finally {
+      $('#qualitySave').disabled = false;
     }
     closeQualityModal();
   }
@@ -1194,17 +1311,26 @@
     }
     if (eocd < 0) throw new Error('No es un ZIP válido.');
     const count = view.getUint16(eocd + 10, true);
-    let pointer = view.getUint32(eocd + 16, true);
+    const centralSize = view.getUint32(eocd + 12, true);
+    const centralOffset = view.getUint32(eocd + 16, true);
+    const commentLength = view.getUint16(eocd + 20, true);
+    if (eocd + 22 + commentLength !== bytes.length) throw new Error('Comentario o final ZIP incoherente.');
+    if (centralOffset + centralSize > eocd) throw new Error('Directorio central fuera de límites.');
+    let pointer = centralOffset;
     if (count > 500) throw new Error('ZIP con demasiadas entradas.');
 
     const entries = [];
+    const names = new Set();
+    let totalData = 0;
     for (let i = 0; i < count; i++) {
       if (pointer + 46 > bytes.length || view.getUint32(pointer, true) !== 0x02014b50) {
         throw new Error('Directorio central corrupto.');
       }
       const expectedCrc = view.getUint32(pointer + 16, true);
+      const flags = view.getUint16(pointer + 8, true);
       const method = view.getUint16(pointer + 10, true);
       const compSize = view.getUint32(pointer + 20, true);
+      const uncompSize = view.getUint32(pointer + 24, true);
       const nameLen = view.getUint16(pointer + 28, true);
       const extraLen = view.getUint16(pointer + 30, true);
       const commentLen = view.getUint16(pointer + 32, true);
@@ -1213,37 +1339,107 @@
       if (nextPointer > bytes.length || localOffset + 30 > bytes.length) throw new Error('ZIP truncado.');
       const name = decoder.decode(bytes.subarray(pointer + 46, pointer + 46 + nameLen));
 
+      if (flags & 0x0001) throw new Error(`Entrada cifrada no soportada: ${name}.`);
+      if (flags & 0x0008) throw new Error(`Entrada con descriptor de datos no soportada: ${name}.`);
       if (method !== 0) throw new Error(`Entrada comprimida no soportada: ${name}. Usa un ZIP exportado por Voice Cari.`);
+      if (compSize !== uncompSize) throw new Error(`Tamaños incoherentes en: ${name}.`);
+      if (!name || name.length > 240 || name.includes('\0') || name.split('/').includes('..')) {
+        throw new Error('Nombre de entrada ZIP no permitido.');
+      }
+      if (names.has(name)) throw new Error(`Entrada duplicada: ${name}.`);
+      names.add(name);
+      const maxEntry = name === 'manifest.json' ? 1024 * 1024 : 60 * 1024 * 1024;
+      if (uncompSize > maxEntry) throw new Error(`Entrada demasiado grande: ${name}.`);
+      totalData += uncompSize;
+      if (totalData > 250 * 1024 * 1024) throw new Error('El contenido del ZIP supera 250 MB.');
       if (view.getUint32(localOffset, true) !== 0x04034b50) throw new Error(`Cabecera local corrupta: ${name}.`);
+      const localFlags = view.getUint16(localOffset + 6, true);
+      const localMethod = view.getUint16(localOffset + 8, true);
       const localNameLen = view.getUint16(localOffset + 26, true);
       const localExtraLen = view.getUint16(localOffset + 28, true);
       const dataStart = localOffset + 30 + localNameLen + localExtraLen;
       const dataEnd = dataStart + compSize;
       if (dataEnd > bytes.length) throw new Error(`Entrada truncada: ${name}.`);
+      const localName = decoder.decode(bytes.subarray(localOffset + 30, localOffset + 30 + localNameLen));
+      if (localName !== name || localFlags !== flags || localMethod !== method) {
+        throw new Error(`Cabeceras ZIP incoherentes: ${name}.`);
+      }
       const data = bytes.slice(dataStart, dataEnd);
       if (crc32(data) !== expectedCrc) throw new Error(`CRC incorrecto: ${name}.`);
       entries.push({ name, data });
       pointer = nextPointer;
     }
+    if (pointer !== centralOffset + centralSize) throw new Error('Tamaño del directorio central incoherente.');
     return entries;
   }
 
-  // Duración de un WAV PCM leyendo sus chunks (fmt → byteRate, data → tamaño)
-  function wavDuration(bytes) {
+  // Inspección estructural de WAV PCM16 antes de restaurarlo en IndexedDB.
+  function inspectWavBytes(bytes) {
     try {
+      if (!(bytes instanceof Uint8Array) || bytes.length < 44 || bytes.length > 60 * 1024 * 1024) return null;
       const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      if (view.getUint32(0, false) !== 0x52494646 || view.getUint32(8, false) !== 0x57415645) return 0; // RIFF/WAVE
+      if (view.getUint32(0, false) !== 0x52494646 || view.getUint32(8, false) !== 0x57415645) return null;
+      const riffEnd = view.getUint32(4, true) + 8;
+      if (riffEnd < 44 || riffEnd > bytes.length) return null;
+
       let pointer = 12;
-      let byteRate = 0;
-      while (pointer + 8 <= bytes.length) {
+      let format = null;
+      let dataOffset = -1;
+      let dataSize = 0;
+      while (pointer + 8 <= riffEnd) {
         const chunkId = view.getUint32(pointer, false);
         const chunkSize = view.getUint32(pointer + 4, true);
-        if (chunkId === 0x666d7420) byteRate = view.getUint32(pointer + 16, true);      // "fmt "
-        if (chunkId === 0x64617461 && byteRate) return Math.round((chunkSize / byteRate) * 10) / 10; // "data"
-        pointer += 8 + chunkSize + (chunkSize % 2);
+        const chunkStart = pointer + 8;
+        const chunkEnd = chunkStart + chunkSize;
+        if (chunkEnd > riffEnd) return null;
+        if (chunkId === 0x666d7420) { // fmt
+          if (chunkSize < 16) return null;
+          format = {
+            audioFormat: view.getUint16(chunkStart, true),
+            channels: view.getUint16(chunkStart + 2, true),
+            rate: view.getUint32(chunkStart + 4, true),
+            byteRate: view.getUint32(chunkStart + 8, true),
+            blockAlign: view.getUint16(chunkStart + 12, true),
+            bits: view.getUint16(chunkStart + 14, true)
+          };
+        } else if (chunkId === 0x64617461 && dataOffset < 0) { // data
+          dataOffset = chunkStart;
+          dataSize = chunkSize;
+        }
+        pointer = chunkEnd + (chunkSize % 2);
       }
-    } catch { /* cabecera rara */ }
-    return 0;
+      if (!format || dataOffset < 0 || dataSize < 2) return null;
+      if (format.audioFormat !== 1 || format.bits !== 16 || ![1, 2].includes(format.channels)) return null;
+      if (format.rate < 8000 || format.rate > 96000) return null;
+      const expectedAlign = format.channels * 2;
+      if (format.blockAlign !== expectedAlign || format.byteRate !== format.rate * expectedAlign) return null;
+      if (dataOffset + dataSize > riffEnd || dataSize % expectedAlign !== 0) return null;
+      const duration = dataSize / format.byteRate;
+      if (duration < MIN_SAMPLE_SECONDS || duration > MAX_SAMPLE_SECONDS) return null;
+
+      const totalSamples = dataSize / 2;
+      const stride = Math.max(1, Math.floor(totalSamples / 200000));
+      let peak = 0;
+      let sumSquares = 0;
+      let measured = 0;
+      for (let i = 0; i < totalSamples; i += stride) {
+        const sample = view.getInt16(dataOffset + i * 2, true);
+        const abs = Math.abs(sample);
+        if (abs > peak) peak = abs;
+        sumSquares += sample * sample;
+        measured++;
+      }
+      const rms = Math.sqrt(sumSquares / Math.max(1, measured));
+      if (peak < 100 || rms < 30) return null;
+      return {
+        duration: Math.round(duration * 10) / 10,
+        channels: format.channels,
+        rate: format.rate,
+        bytes: bytes.length
+      };
+    } catch {
+      return null;
+    }
   }
 
   /* ── Exportar / importar banco completo ───────────────────────── */
@@ -1262,7 +1458,11 @@
       files.push({ name: filename, data: new Uint8Array(await sample.wav.arrayBuffer()) });
       manifest.samples.push({
         file: filename, name: sample.name, createdAt: sample.createdAt,
-        duration: sample.duration, consent: sample.consent
+        duration: sample.duration,
+        kind: sample.kind === 'consent' ? 'consent' : 'sample',
+        quality: typeof sample.quality === 'number' ? sample.quality : null,
+        processed: sample.processed && typeof sample.processed === 'object' ? sample.processed : null,
+        consent: sample.consent
       });
     }
     files.unshift({ name: 'manifest.json', data: new TextEncoder().encode(JSON.stringify(manifest, null, 2)) });
@@ -1280,6 +1480,7 @@
     if (manifestEntry) {
       try { manifest = JSON.parse(new TextDecoder().decode(manifestEntry.data)); } catch { /* manifest ilegible */ }
     }
+    const manifestSamples = Array.isArray(manifest?.samples) ? manifest.samples : [];
     const wavEntries = entries.filter(entry => /\.wav$/i.test(entry.name) && entry.data.length > 44);
     if (!wavEntries.length) return showToast('El ZIP no contiene muestras WAV.');
 
@@ -1295,21 +1496,37 @@
     let skipped = 0;
     let invalid = 0;
     for (const entry of wavEntries) {
-      const meta = manifest?.samples?.find(sampleMeta => sampleMeta.file === entry.name);
-      const name = (meta?.name || entry.name.replace(/^muestras\//, '').replace(/\.wav$/i, '')).trim() || 'Muestra importada';
-      const duration = wavDuration(entry.data);
-      if (!duration) { invalid++; continue; }
-      if (existing.some(sample => sample.name === name && sample.bytes === entry.data.length)) { skipped++; continue; }
+      const meta = manifestSamples.find(sampleMeta => sampleMeta && typeof sampleMeta === 'object' && sampleMeta.file === entry.name);
+      const fallbackName = entry.name.replace(/^muestras\//, '').replace(/\.wav$/i, '');
+      const name = boundedText(meta?.name, 80, boundedText(fallbackName, 80, 'Muestra importada')) || 'Muestra importada';
+      const inspection = inspectWavBytes(entry.data);
+      if (!inspection) { invalid++; continue; }
+      if (existing.some(sample => sample.name === name && sample.bytes === entry.data.length && sample.duration === inspection.duration)) {
+        skipped++;
+        continue;
+      }
+      const originalConsent = meta?.consent && typeof meta.consent === 'object' && !Array.isArray(meta.consent)
+        ? meta.consent
+        : {};
+      const kind = meta?.kind === 'consent' ? 'consent' : 'sample';
+      const quality = Number.isFinite(Number(meta?.quality))
+        ? Math.max(0, Math.min(100, Math.round(Number(meta.quality))))
+        : null;
       await idb.put({
         id: uid(), name,
-        createdAt: meta?.createdAt || new Date().toISOString(),
-        duration,
+        createdAt: validIsoDate(meta?.createdAt) || new Date().toISOString(),
+        duration: inspection.duration,
         bytes: entry.data.length,
+        kind,
+        quality,
+        processed: meta?.processed && typeof meta.processed === 'object' && !Array.isArray(meta.processed)
+          ? meta.processed
+          : { imported: true },
         consent: {
-          ...(meta?.consent || {}),
+          ...originalConsent,
           confirmed: true,
           reauthorizedAt: new Date().toISOString(),
-          importedWithoutManifest: !meta?.consent
+          importedWithoutManifest: !Object.keys(originalConsent).length
         },
         wav: new Blob([entry.data], { type: 'audio/wav' })
       });
@@ -1323,18 +1540,26 @@
     const list = $('#bankList');
     const select = $('#cloneSample');
     let samples = [];
-    try { samples = (await idb.all()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)); } catch { /* IDB bloqueado */ }
-    $('#bankCount').textContent = `${samples.length} muestra${samples.length === 1 ? '' : 's'}`;
+    try {
+      samples = (await idb.all())
+        .filter(sample => sample && typeof sample === 'object' && sample.wav instanceof Blob)
+        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    } catch { /* IDB bloqueado */ }
+    const consentCount = samples.filter(sample => sample.kind === 'consent').length;
+    const voiceCount = samples.length - consentCount;
+    $('#bankCount').textContent = consentCount
+      ? `${voiceCount} muestra${voiceCount === 1 ? '' : 's'} · ${consentCount} consentimiento${consentCount === 1 ? '' : 's'}`
+      : `${voiceCount} muestra${voiceCount === 1 ? '' : 's'}`;
 
     const previous = select.value;
     select.innerHTML = '<option value="">— elige una muestra del banco —</option>';
-    samples.forEach(sample => {
+    samples.filter(sample => sample.kind !== 'consent').forEach(sample => {
       const option = document.createElement('option');
       option.value = sample.id;
-      option.textContent = `${sample.name} · ${sample.duration}s`;
+      option.textContent = `${boundedText(sample.name, 80, 'Muestra')} · ${Number(sample.duration || 0).toFixed(1)}s`;
       select.appendChild(option);
     });
-    if (samples.some(sample => sample.id === previous)) select.value = previous;
+    if (samples.some(sample => sample.id === previous && sample.kind !== 'consent')) select.value = previous;
 
     const selectableCount = samples.filter(s => s.kind !== 'consent').length;
     $('#mergeSamples').disabled = selectableCount < 2;
@@ -1347,25 +1572,29 @@
     list.className = 'cards-list';
     list.innerHTML = samples.map(sample => {
       const isConsent = sample.kind === 'consent';
+      const safeName = boundedText(sample.name, 80, isConsent ? 'Consentimiento' : 'Muestra');
+      const safeId = boundedText(sample.id, 100);
+      const safeDuration = Number.isFinite(Number(sample.duration)) ? Number(sample.duration) : 0;
+      const safeBytes = Number.isFinite(Number(sample.bytes)) ? Number(sample.bytes) : sample.wav.size;
       const q = typeof sample.quality === 'number' ? sample.quality : null;
       const qClass = q === null ? '' : q >= 85 ? 'q-good' : q >= 65 ? 'q-ok' : q >= 40 ? 'q-warn' : 'q-bad';
       return `
       <div class="card-item${isConsent ? ' card-consent' : ''}">
         <header>
           <label class="card-select">
-            ${isConsent ? '' : `<input type="checkbox" class="sample-check" data-check="${escapeHtml(sample.id)}" aria-label="Seleccionar ${escapeHtml(sample.name)}" />`}
-            <strong>${escapeHtml(sample.name)}</strong>
+            ${isConsent ? '' : `<input type="checkbox" class="sample-check" data-check="${escapeHtml(safeId)}" aria-label="Seleccionar ${escapeHtml(safeName)}" />`}
+            <strong>${escapeHtml(safeName)}</strong>
           </label>
           ${isConsent
             ? '<span class="pill pill-consent">Consentimiento grabado</span>'
             : `<span class="pill pill-safe">Consentida</span>${q !== null ? `<span class="pill ${qClass}">${q}/100</span>` : ''}`}
         </header>
-        <p><b>Duración:</b> ${escapeHtml(String(sample.duration))} s · <b>Tamaño:</b> ${escapeHtml(String(Math.round(sample.bytes / 1024)))} KB${sample.processed?.normalize ? ' · normalizada' : ''}${sample.processed?.trim ? ' · recortada' : ''}</p>
+        <p><b>Duración:</b> ${escapeHtml(safeDuration.toFixed(1))} s · <b>Tamaño:</b> ${escapeHtml(String(Math.round(safeBytes / 1024)))} KB${sample.processed?.normalize ? ' · normalizada' : ''}${sample.processed?.trim ? ' · recortada' : ''}</p>
         <p><b>Guardada:</b> ${escapeHtml(new Date(sample.createdAt).toLocaleString('es-ES'))}</p>
         <div class="card-actions">
-          <button class="btn btn-outline btn-small" data-play-sample="${escapeHtml(sample.id)}">Escuchar</button>
-          <button class="btn btn-outline btn-small" data-export-sample="${escapeHtml(sample.id)}">Descargar</button>
-          <button class="btn btn-danger btn-small" data-delete-sample="${escapeHtml(sample.id)}">Eliminar</button>
+          <button class="btn btn-outline btn-small" data-play-sample="${escapeHtml(safeId)}">Escuchar</button>
+          <button class="btn btn-outline btn-small" data-export-sample="${escapeHtml(safeId)}">Descargar</button>
+          <button class="btn btn-danger btn-small" data-delete-sample="${escapeHtml(safeId)}">Eliminar</button>
         </div>
       </div>`;
     }).join('');
@@ -1379,6 +1608,13 @@
       : 'http://127.0.0.1:8020'
   );
   const engineBase = () => ($('#engineUrl').value.trim() || defaultEngineUrl()).replace(/\/+$/, '');
+
+  function engineFetch(url, options = {}) {
+    const parsed = new URL(url);
+    const requestOptions = { credentials: 'omit', ...options };
+    if (isLoopbackHost(parsed.hostname)) requestOptions.targetAddressSpace = 'loopback';
+    return fetch(url, requestOptions);
+  }
 
   function validateEngineUrl() {
     try {
@@ -1402,7 +1638,7 @@
     const timer = setTimeout(() => controller.abort(), 6000);
     try {
       const base = validateEngineUrl();
-      const response = await fetch(`${base}/health`, { signal: controller.signal, cache: 'no-store' });
+      const response = await engineFetch(`${base}/health`, { signal: controller.signal, cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       if (data.status !== 'ok') throw new Error('estado inesperado');
@@ -1417,7 +1653,7 @@
     } catch (error) {
       setEngineStatus('Sin conexión', false);
       const reason = error?.name === 'AbortError' ? 'La conexión agotó el tiempo de espera.' : '';
-      showToast(reason || 'No se pudo conectar. Abre la app desde el servidor local y comprueba que el motor está arrancado.');
+      showToast(reason || 'No se pudo conectar. Comprueba el motor y permite el acceso a la red local/loopback si el navegador lo solicita.');
       return false;
     } finally {
       clearTimeout(timer);
@@ -1474,12 +1710,34 @@
   let cloneUrl = null;
   let cloneBlob = null;
   let cloning = false;
+  let cloneController = null;
+  let cloneAbortReason = '';
 
   async function isValidWavBlob(blob) {
-    const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
-    return head.length >= 12
-      && String.fromCharCode(...head.slice(0, 4)) === 'RIFF'
-      && String.fromCharCode(...head.slice(8, 12)) === 'WAVE';
+    if (!(blob instanceof Blob) || blob.size < 44 || blob.size > MAX_CLONE_OUTPUT_BYTES) return false;
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    try {
+      const view = new DataView(bytes.buffer);
+      if (view.getUint32(0, false) !== 0x52494646 || view.getUint32(8, false) !== 0x57415645) return false;
+      const riffEnd = view.getUint32(4, true) + 8;
+      if (riffEnd < 44 || riffEnd > bytes.length) return false;
+      let pointer = 12;
+      while (pointer + 8 <= riffEnd) {
+        const id = view.getUint32(pointer, false);
+        const size = view.getUint32(pointer + 4, true);
+        const end = pointer + 8 + size;
+        if (end > riffEnd) return false;
+        if (id === 0x64617461 && size > 0) return true;
+        pointer = end + (size % 2);
+      }
+    } catch { /* WAV inválido */ }
+    return false;
+  }
+
+  function cancelClone() {
+    if (!cloning || !cloneController) return;
+    cloneAbortReason = 'user';
+    cloneController.abort();
   }
 
   async function generateClone() {
@@ -1502,20 +1760,26 @@
     $('#cloneGo').disabled = true;
     setCloneStatus('Generando…');
     const startedAt = performance.now();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15 * 60 * 1000);
+    cloneAbortReason = '';
+    cloneController = new AbortController();
+    $('#cloneCancel').disabled = false;
+    const timeout = setTimeout(() => {
+      cloneAbortReason = 'timeout';
+      cloneController?.abort();
+    }, 15 * 60 * 1000);
     try {
       const base = validateEngineUrl();
       const form = new FormData();
       form.append('text', text);
       form.append('language', $('#cloneLang').value);
       form.append('reference', sample.wav, 'reference.wav');
-      const response = await fetch(`${base}/clone`, { method: 'POST', body: form, signal: controller.signal });
+      const response = await engineFetch(`${base}/clone`, { method: 'POST', body: form, signal: cloneController.signal });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.detail || `HTTP ${response.status}`);
       }
       let audio = await response.blob();
+      if (audio.size > MAX_CLONE_OUTPUT_BYTES) throw new Error('La salida del motor supera 100 MB.');
       if (!(await isValidWavBlob(audio))) throw new Error('El motor no devolvió un WAV válido.');
       audio = await tagSyntheticProvenance(audio); // marca "voz sintética" en los metadatos
       if (cloneUrl) URL.revokeObjectURL(cloneUrl);
@@ -1533,7 +1797,12 @@
       setCloneStatus('Error');
       const detail = String(error?.message || '').slice(0, 160);
       if (error?.name === 'AbortError') {
-        showToast('La generación superó el tiempo máximo de 15 minutos. Revisa el motor y la carga del equipo.');
+        if (cloneAbortReason === 'user') {
+          setCloneStatus('Cancelado');
+          showToast('Espera cancelada. El motor local puede tardar unos instantes en liberar el trabajo interno.');
+        } else {
+          showToast('La generación superó el tiempo máximo de 15 minutos. Revisa el motor y la carga del equipo.');
+        }
       } else {
         showToast(detail.includes('Failed to fetch')
           ? 'Motor no accesible. Abre la app desde el servidor local y prueba la conexión.'
@@ -1541,8 +1810,11 @@
       }
     } finally {
       clearTimeout(timeout);
+      cloneController = null;
+      cloneAbortReason = '';
       cloning = false;
       $('#cloneGo').disabled = false;
+      $('#cloneCancel').disabled = true;
     }
   }
 
@@ -1562,7 +1834,13 @@
         const { pcm } = await blobToFloat(sample.wav);
         pcmList.push(pcm);
       }
-      const merged = normalizePeak(concatSamples(pcmList)); // normaliza el conjunto
+      const rawMerged = concatSamples(pcmList);
+      const rawAnalysis = analyzeSample(rawMerged);
+      if (rawAnalysis.silent) throw new Error('La fusión no contiene señal útil.');
+      if (rawAnalysis.duration > MAX_SAMPLE_SECONDS) {
+        return showToast(`La fusión supera el máximo de ${MAX_SAMPLE_SECONDS / 60} minutos. Selecciona menos muestras.`);
+      }
+      const merged = normalizePeak(rawMerged); // normaliza el conjunto sin rescatar ruido casi silencioso
       const analysis = analyzeSample(merged);
       const wav = floatToWav(merged);
       const name = `Fusión (${chosen.length}) · ${new Date().toLocaleDateString('es-ES')}`;
@@ -1588,6 +1866,7 @@
     $('#testEngine').addEventListener('click', testEngine);
     $('#exportBank').addEventListener('click', exportBank);
     $('#cloneGo').addEventListener('click', generateClone);
+    $('#cloneCancel').addEventListener('click', cancelClone);
     $('#mergeSamples').addEventListener('click', mergeSelected);
 
     // Modal de calidad
@@ -1664,12 +1943,39 @@
   function initReset() {
     $('#resetApp').addEventListener('click', () => {
       if (!confirm('¿Resetear Voice Cari en este navegador? Se borrarán texto, perfiles, proyectos, banco de voz y consentimiento local.')) return;
+
+      speechSynthesis.cancel();
+      clearTimeout(state.recordingTimeout);
+      clearInterval(state.timerInterval);
+      state.stream?.getTracks().forEach(track => track.stop());
+      if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
+      if (cloneUrl) URL.revokeObjectURL(cloneUrl);
+      if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+
       Object.keys(localStorage)
-        .filter(k => k.startsWith('voiceCari:'))
-        .forEach(k => localStorage.removeItem(k));
+        .filter(key => key.startsWith('voiceCari:'))
+        .forEach(key => localStorage.removeItem(key));
+
+      const button = $('#resetApp');
+      button.disabled = true;
+      button.textContent = 'Borrando…';
       const wipe = indexedDB.deleteDatabase('voiceCariDB');
-      wipe.onsuccess = wipe.onerror = wipe.onblocked = () => location.reload();
-      setTimeout(() => location.reload(), 1500);
+      let finished = false;
+      const fail = message => {
+        if (finished) return;
+        finished = true;
+        button.disabled = false;
+        button.textContent = 'Reset';
+        showToast(message);
+      };
+      wipe.onsuccess = () => {
+        if (finished) return;
+        finished = true;
+        location.reload();
+      };
+      wipe.onerror = () => fail('No se pudo borrar el banco local. Cierra otras pestañas de Voice Cari y vuelve a intentarlo.');
+      wipe.onblocked = () => fail('El borrado está bloqueado por otra pestaña. Ciérrala y vuelve a pulsar Reset.');
+      setTimeout(() => fail('El borrado está tardando demasiado. Cierra otras pestañas y vuelve a intentarlo.'), 5000);
     });
   }
 

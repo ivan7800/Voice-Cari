@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="referrer" content="no-referrer" />
   <!-- Defensa en profundidad: GitHub Pages no permite cabeceras HTTP, así que la CSP va en meta. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self' http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'none'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-O9bbC6pc0+zBs/o8bAJi7AKJF/UizSYdbFu5R44OA1Y='; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self' http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'none'" />
 
   <!-- SEO -->
   <title>Voice Cari — Estudio local de voz sintética autorizada | Universo 404</title>
@@ -80,7 +81,7 @@
           <label class="check"><input id="optNormalize" type="checkbox" checked /> <span>Normalizar volumen (recomendado)</span></label>
         </div>
         <label class="field"><span>Nombre de la muestra</span>
-          <input id="qualityName" placeholder="Ej.: María · lectura pausada" />
+          <input id="qualityName" maxlength="80" autocomplete="off" placeholder="Ej.: María · lectura pausada" />
         </label>
         <label class="check consent-line"><input id="qualityConsent" type="checkbox" /> <span>Confirmo que esta voz es mía o de una persona que me ha dado permiso explícito para clonarla.</span></label>
         <div class="modal-actions">
@@ -127,7 +128,7 @@
             <li>Fraudes, llamadas engañosas, acoso, extorsión o manipulación.</li>
             <li>Ocultar que un audio es sintético cuando pueda inducir a error.</li>
           </ul>
-          <p>El usuario es responsable de obtener permisos y cumplir la ley aplicable sobre voz, imagen, datos personales y privacidad. Esta versión trabaja íntegramente en local: no clona voces reales dentro del navegador y no envía audio a ningún servidor.</p>
+          <p>El usuario es responsable de obtener permisos y cumplir la ley aplicable sobre voz, imagen, datos personales y privacidad. El frontend conserva los datos en este navegador. Al clonar, envía la muestra y el texto únicamente al motor local que hayas iniciado en tu ordenador; la primera instalación del modelo puede requerir Internet.</p>
         </div>
         <div class="legal-actions">
           <button id="acceptLegal" class="btn btn-primary" disabled>Entrar en el estudio</button>
@@ -175,7 +176,7 @@
     <!-- ══════════ HERO ══════════ -->
     <section class="hero" aria-labelledby="heroTitle">
       <div class="hero-copy">
-        <p class="eyebrow"><span class="led led-safe" aria-hidden="true"></span> Consola local · sin backend · sin claves</p>
+        <p class="eyebrow"><span class="led led-safe" aria-hidden="true"></span> Frontend local · motor opcional · sin claves públicas</p>
         <h2 id="heroTitle">Voz sintética,<br />narración y muestras<br /><span class="accent-text">con consentimiento.</span></h2>
         <p class="hero-sub">
           Crea perfiles vocales autorizados, graba muestras limpias, prueba narración en vivo con las voces
@@ -192,8 +193,8 @@
         </div>
         <div class="console-readout">
           <span>MODO SEGURO</span>
-          <span>LOCAL / OFFLINE</span>
-          <span>v3.3.0</span>
+          <span>LOCAL / MOTOR OPCIONAL</span>
+          <span>v3.3.2</span>
         </div>
       </div>
     </section>
@@ -208,7 +209,7 @@
           </header>
           <div class="module-body">
             <label class="visually-hidden" for="scriptText">Texto de la narración</label>
-            <textarea id="scriptText" spellcheck="true" placeholder="Pega aquí el texto de la narración, capítulo, tráiler o locución…"></textarea>
+            <textarea id="scriptText" maxlength="100000" spellcheck="true" placeholder="Pega aquí el texto de la narración, capítulo, tráiler o locución…"></textarea>
             <div class="meta-row" aria-live="polite">
               <span><strong id="charCount">0</strong> caracteres</span>
               <span><strong id="wordCount">0</strong> palabras</span>
@@ -335,14 +336,14 @@
               (carpeta <code>server/</code> del proyecto). La voz nunca sale de tu máquina.
             </p>
             <label class="field"><span>Dirección del motor local</span>
-              <input id="engineUrl" value="http://127.0.0.1:8020" spellcheck="false" />
+              <input id="engineUrl" type="url" maxlength="300" autocomplete="off" value="http://127.0.0.1:8020" spellcheck="false" aria-describedby="engineInfo" />
             </label>
             <div class="btn-stack">
               <button id="testEngine" class="btn btn-outline">Probar conexión</button>
             </div>
             <p class="notice" id="engineInfo">
               Para clonar, ejecuta el servidor y abre <code>http://127.0.0.1:8020</code>; no abras el archivo
-              <code>index.html</code> directamente. La primera generación real descarga el modelo. Para probar
+              <code>index.html</code> directamente. Tu navegador puede pedir permiso para acceder a la red local. La primera generación real descarga el modelo. Para probar
               la tubería sin clonación: <code>VOICE_CARI_DEMO=1 python server/xtts_server.py</code>.
             </p>
           </div>
@@ -397,6 +398,7 @@
             </label>
             <div class="btn-stack">
               <button id="cloneGo" class="btn btn-primary">Generar con el texto del Studio</button>
+              <button id="cloneCancel" class="btn btn-ghost" disabled>Cancelar generación</button>
             </div>
             <audio id="cloneAudio" class="player" controls hidden aria-label="Audio generado con voz clonada"></audio>
             <div class="btn-stack">
@@ -446,7 +448,7 @@
           </header>
           <div class="module-body">
             <div class="form-grid">
-              <label class="field"><span>Nombre del perfil</span><input id="profileName" placeholder="Ej. Narrador oscuro propio" /></label>
+              <label class="field"><span>Nombre del perfil</span><input id="profileName" maxlength="80" autocomplete="off" placeholder="Ej. Narrador oscuro propio" /></label>
               <label class="field"><span>Uso permitido</span>
                 <select id="profileUse" class="select">
                   <option>Audiolibro propio</option>
@@ -456,7 +458,7 @@
                   <option>Otro autorizado</option>
                 </select>
               </label>
-              <label class="field"><span>Tono</span><input id="profileTone" placeholder="grave, cálido, seco, documental…" /></label>
+              <label class="field"><span>Tono</span><input id="profileTone" maxlength="120" autocomplete="off" placeholder="grave, cálido, seco, documental…" /></label>
               <label class="field"><span>Consentimiento</span>
                 <select id="profileConsent" class="select">
                   <option value="own">Voz propia</option>
@@ -488,7 +490,7 @@
             <span class="plate-label">MÓDULO 06 · GUARDAR SESIÓN</span>
           </header>
           <div class="module-body">
-            <label class="field"><span>Nombre del proyecto</span><input id="projectName" placeholder="Ej. Capítulo 1 — Universo 404" /></label>
+            <label class="field"><span>Nombre del proyecto</span><input id="projectName" maxlength="100" autocomplete="off" placeholder="Ej. Capítulo 1 — Universo 404" /></label>
             <div class="btn-stack">
               <button id="saveProject" class="btn btn-primary">Guardar proyecto local</button>
               <button id="exportProject" class="btn btn-outline">Exportar paquete JSON</button>
@@ -530,7 +532,7 @@
                   <option>Backend propio</option>
                 </select>
               </label>
-              <label class="field"><span>ID de voz / perfil externo (opcional)</span><input id="externalVoiceId" placeholder="voice_id opcional" /></label>
+              <label class="field"><span>ID de voz / perfil externo (opcional)</span><input id="externalVoiceId" maxlength="200" autocomplete="off" placeholder="voice_id opcional" /></label>
             </div>
             <button id="buildApiPack" class="btn btn-primary">Generar paquete API-ready</button>
           </div>
@@ -565,7 +567,7 @@
           </div>
           <p class="notice">
             <strong>Cómo funciona la clonación:</strong> el navegador no clona por sí solo; la síntesis con voz clonada
-            la hace el motor local XTTS de la carpeta <code>server/</code>, en tu propio ordenador y sin conexión externa.
+            la hace el motor local XTTS de la carpeta <code>server/</code>, en tu propio ordenador. El primer uso real puede necesitar Internet para instalar o descargar el modelo.
           </p>
         </div>
       </article>
@@ -573,7 +575,7 @@
   </main>
 
   <footer class="footer">
-    <span>VOICE CARI v3.3.1 · Universo 404 · GitHub Pages Ready</span>
+    <span>VOICE CARI v3.3.2 · Universo 404 · GitHub Pages Ready</span>
     <span>Datos locales · consentimiento · voz sintética identificable</span>
   </footer>
 

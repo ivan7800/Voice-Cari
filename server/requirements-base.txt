@@ -1,4 +1,4 @@
-# Dependencias ligeras para el servidor y el modo demo.
-fastapi>=0.110
-uvicorn>=0.29
-python-multipart>=0.0.9
+# Versiones verificadas en la auditoría demo (Python 3.13.5).
+fastapi==0.128.2
+uvicorn==0.48.0
+python-multipart==0.0.29

@@ -27,10 +27,10 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def make_wav(seconds: float = 4.0, rate: int = 24000, silent: bool = False) -> bytes:
+def make_wav(seconds: float = 4.0, rate: int = 24000, silent: bool = False, amplitude: float = 0.25) -> bytes:
     frames = bytearray()
     for index in range(int(seconds * rate)):
-        value = 0 if silent else int(0.25 * 32767 * math.sin(2 * math.pi * 220 * index / rate))
+        value = 0 if silent else int(amplitude * 32767 * math.sin(2 * math.pi * 220 * index / rate))
         frames += struct.pack("<h", value)
     buf = io.BytesIO()
     with wave.open(buf, "wb") as audio:
@@ -62,8 +62,8 @@ def multipart(fields: dict[str, str], filename: str, payload: bytes) -> tuple[by
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
-def request(url: str, *, data: bytes | None = None, headers: dict[str, str] | None = None):
-    req = urllib.request.Request(url, data=data, headers=headers or {})
+def request(url: str, *, data: bytes | None = None, headers: dict[str, str] | None = None, method: str | None = None):
+    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             return response.status, dict(response.headers), response.read()
@@ -109,16 +109,31 @@ def main() -> int:
         health = json.loads(body)
         assert_true(health["status"] == "ok", "GET /health responde ok")
         assert_true(health["demo"] is True, "el servidor está en modo demo")
+        assert_true(health["version"] == "3.3.2", "la API publica la versión 3.3.2")
 
         status, _, _ = request(f"{base}/health", headers={"Origin": "https://evil.example"})
         assert_true(status == 403, "un origen web no autorizado queda bloqueado")
+
+        status, pna_headers, _ = request(
+            f"{base}/health",
+            method="OPTIONS",
+            headers={
+                "Origin": "https://ivan7800.github.io",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Private-Network": "true",
+            },
+        )
+        lowered_pna = {key.lower(): value for key, value in pna_headers.items()}
+        assert_true(status == 200 and lowered_pna.get("access-control-allow-private-network") == "true", "el preflight de red local se autoriza solo para un origen confiable")
 
         wav = make_wav(4.0)
         body, content_type = multipart({"text": "Prueba autorizada", "language": "es"}, "reference.wav", wav)
         status, headers, result = request(f"{base}/clone", data=body, headers={"Content-Type": content_type})
         assert_true(status == 200, "POST /clone acepta un WAV PCM16 válido")
         assert_true(result[:4] == b"RIFF" and result[8:12] == b"WAVE", "la respuesta de demo es WAV")
-        assert_true({k.lower(): v for k, v in headers.items()}.get("x-voice-cari-synthetic") == "1", "la respuesta marca procedencia sintética")
+        lowered = {k.lower(): v for k, v in headers.items()}
+        assert_true(lowered.get("x-voice-cari-synthetic") == "1", "la respuesta marca procedencia sintética")
+        assert_true(lowered.get("x-content-type-options") == "nosniff", "las respuestas incluyen cabeceras de seguridad")
 
         bad_body, bad_type = multipart({"text": "Prueba", "language": "es"}, "fake.wav", b"RIFFnot-a-wave")
         status, _, _ = request(f"{base}/clone", data=bad_body, headers={"Content-Type": bad_type})
@@ -132,12 +147,29 @@ def main() -> int:
         status, _, _ = request(f"{base}/clone", data=silent_body, headers={"Content-Type": silent_type})
         assert_true(status == 422, "una muestra sin señal útil se rechaza")
 
+        quiet_body, quiet_type = multipart({"text": "Prueba", "language": "es"}, "quiet.wav", make_wav(4.0, amplitude=0.0005))
+        status, _, _ = request(f"{base}/clone", data=quiet_body, headers={"Content-Type": quiet_type})
+        assert_true(status == 422, "el ruido casi silencioso no se acepta como voz")
+
+        truncated = wav[:-200]
+        trunc_body, trunc_type = multipart({"text": "Prueba", "language": "es"}, "truncated.wav", truncated)
+        status, _, _ = request(f"{base}/clone", data=trunc_body, headers={"Content-Type": trunc_type})
+        assert_true(status == 415, "un WAV truncado se rechaza")
+
         lang_body, lang_type = multipart({"text": "Prueba", "language": "xx"}, "reference.wav", wav)
         status, _, _ = request(f"{base}/clone", data=lang_body, headers={"Content-Type": lang_type})
         assert_true(status == 400, "un idioma no permitido se rechaza")
 
+        control_body, control_type = multipart({"text": "Texto\x00oculto", "language": "es"}, "reference.wav", wav)
+        status, _, _ = request(f"{base}/clone", data=control_body, headers={"Content-Type": control_type})
+        assert_true(status == 400, "los caracteres de control del texto se rechazan")
+
         status, _, html = request(f"{base}/")
         assert_true(status == 200 and b"Voice Cari" in html, "el servidor sirve el frontend")
+
+        for private_path in ("/server/xtts_server.py", "/tests/smoke_server.py", "/README.md", "/.gitignore"):
+            status, _, _ = request(f"{base}{private_path}")
+            assert_true(status == 404, f"el servidor no expone {private_path}")
         print("\nTodas las pruebas smoke han pasado.")
         return 0
     finally:
