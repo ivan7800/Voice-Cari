@@ -1,51 +1,85 @@
-# Motor local de clonación — Voice Cari v3
+# Motor local de clonación — Voice Cari v3.3.1
 
-Todo se ejecuta **en tu ordenador**. La voz nunca se sube a ningún servicio.
+El servidor FastAPI ejecuta la clonación en el ordenador del usuario y sirve también el frontend desde la carpeta padre.
 
-## Requisitos
+## Requisitos recomendados
 
 - Windows 10/11, macOS o Linux.
-- **Python 3.10 u 3.11** (recomendado; 3.12+ puede dar problemas con coqui-tts).
-- ~6 GB de disco (modelo + PyTorch) y 8 GB de RAM. GPU NVIDIA opcional (mucho más rápido).
+- Python 3.10 o 3.11 para el motor real.
+- Espacio suficiente para PyTorch y el modelo.
+- 8 GB de RAM como referencia mínima práctica.
+- GPU NVIDIA opcional.
 
-## Instalación (Windows, PowerShell)
+## Instalación en Windows
 
 ```powershell
 cd voice-cari-v3\server
 py -3.11 -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+pip install -r requirements-base.txt
 ```
 
-## Probar la tubería SIN descargar el modelo (modo demo)
+## Modo demo
+
+No descarga el modelo y no clona. Sirve para verificar interfaz, validación, subida y descarga.
 
 ```powershell
 $env:VOICE_CARI_DEMO = "1"
 python xtts_server.py
 ```
 
-Abre http://127.0.0.1:8020 (el servidor también sirve la app), pestaña **Clonar** →
-«Probar conexión» → añade una muestra → «Generar». Recibirás un beep: la tubería funciona.
+O ejecuta `start-demo.bat`.
+
+Abre `http://127.0.0.1:8020`.
 
 ## Motor real
 
+Lee primero la licencia del modelo y comprueba que tu uso está permitido. El servidor ya no acepta la licencia automáticamente.
+
 ```powershell
+pip install -r requirements.txt
+$env:COQUI_TOS_AGREED = "1"
 python xtts_server.py
 ```
 
-- La **primera generación** descarga XTTS-v2 (~1,9 GB) y carga el modelo: puede tardar varios minutos.
-- En CPU, generar una frase tarda ~20–60 s. Con GPU NVIDIA (CUDA), ~2–5 s.
-- Para GPU: instala primero la build CUDA de PyTorch según https://pytorch.org y luego `pip install -r requirements.txt`.
+O ejecuta `start-real.bat` después de definir `COQUI_TOS_AGREED=1`.
 
-## Consejos de calidad para la muestra
+## Variables de entorno
 
-- 10–30 s de voz limpia bastan; sin música ni ruido de fondo, sin eco.
-- Volumen constante, tono natural. Varias muestras (neutra, cálida, pausada) dan flexibilidad.
-- Guarda también **grabaciones largas en bruto** fuera de la app: los motores futuros las aprovecharán mejor.
+| Variable | Predeterminado | Uso |
+|---|---:|---|
+| `VOICE_CARI_DEMO` | vacío | `1` activa el tono de prueba. |
+| `VOICE_CARI_HOST` | `127.0.0.1` | Dirección de escucha. No uses `0.0.0.0` sin protección adicional. |
+| `VOICE_CARI_PORT` | `8020` | Puerto local. |
+| `VOICE_CARI_PUBLIC_ORIGIN` | `https://ivan7800.github.io` | Frontend público autorizado. |
+| `VOICE_CARI_ALLOWED_ORIGINS` | vacío | Orígenes extra separados por comas. |
+| `COQUI_TOS_AGREED` | vacío | Debe ser `1` para cargar el modelo real. |
 
-## Privacidad y licencia
+## Endpoints
 
-- El servidor escucha solo en `127.0.0.1`: no es accesible desde la red.
-- Muestra y audio se procesan en carpetas temporales que se borran al terminar cada petición.
-- XTTS-v2 usa la *Coqui Public Model License* (**no comercial**). Uso personal/familiar: correcto.
-- El audio generado es voz sintética: identifícalo como tal si algún día lo compartes.
+- `GET /health`: estado, versión, modo y límites.
+- `POST /clone`: `multipart/form-data` con `text`, `language` y `reference`.
+
+La referencia debe ser WAV PCM16, mono o estéreo, entre 3 segundos y 5 minutos, y menor de 60 MB.
+
+## Seguridad
+
+- Orígenes no autorizados se bloquean con `403`, no solo mediante CORS.
+- Se limita la lectura de la subida antes de cargarla completa en memoria.
+- Se valida la estructura WAV con la biblioteca estándar.
+- La síntesis bloqueante se ejecuta en un thread para mantener `/health` disponible.
+- Los errores detallados quedan en la consola local, no en la respuesta HTTP.
+- Los temporales se crean en una carpeta aislada y se eliminan automáticamente.
+
+## Diagnóstico
+
+```powershell
+curl http://127.0.0.1:8020/health
+```
+
+Prueba completa automatizada:
+
+```powershell
+python ..\tests\smoke_server.py
+```

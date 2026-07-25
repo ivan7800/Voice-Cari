@@ -1,12 +1,13 @@
 /* ═══════════════════════════════════════════════════════════════════
-   VOICE CARI v2.0.0 — Authorized Voice Studio · Universo 404
-   Estático · sin backend · sin claves API · datos solo en este navegador.
+   VOICE CARI v3.3.1 — Authorized Voice Studio · Universo 404
+   Frontend estático + motor XTTS local opcional. Sin claves en cliente.
    Compatible con datos de v1.x (mismas claves voiceCari:*).
    ═══════════════════════════════════════════════════════════════════ */
 (() => {
   'use strict';
 
-  const APP_VERSION = '3.3.0';
+  const APP_VERSION = '3.3.1';
+  const LEGAL_VERSION = 2;
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
@@ -118,8 +119,11 @@
   }
 
   function initLegal() {
-    if (store.get('legalAccepted', false)) {
+    const accepted = store.get('legalAccepted', null);
+    const isCurrentAcceptance = accepted && typeof accepted === 'object' && accepted.consentVersion === LEGAL_VERSION;
+    if (isCurrentAcceptance) {
       legalGate.classList.add('hide');
+      setAppInert(false);
     } else {
       setAppInert(true);
       legalGate.addEventListener('keydown', trapFocus);
@@ -130,7 +134,7 @@
       .forEach(id => $(id).addEventListener('change', updateLegalButton));
 
     $('#acceptLegal').addEventListener('click', () => {
-      store.set('legalAccepted', { acceptedAt: new Date().toISOString(), version: APP_VERSION });
+      store.set('legalAccepted', { acceptedAt: new Date().toISOString(), version: APP_VERSION, consentVersion: LEGAL_VERSION });
       legalGate.classList.add('hide');
       setAppInert(false);
       $('#scriptText')?.focus();
@@ -897,7 +901,9 @@
       : Infinity;
 
     const clipPct = (clipped / Math.max(1, n)) * 100;
+    const silent = peak < 0.003 || rms < 0.001;
     const issues = [];
+    if (silent) issues.push({ level: 'warn', text: 'No se detecta una señal de voz útil. Revisa el micrófono o el archivo.' });
     if (duration < 6) issues.push({ level: 'warn', text: `Muy corta (${duration.toFixed(1)}s). Ideal: 15–30 s o más.` });
     else if (duration < 10) issues.push({ level: 'info', text: `Algo corta (${duration.toFixed(1)}s). Más audio mejora la clonación.` });
     if (clipPct > 0.5) issues.push({ level: 'warn', text: `Saturación (clipping) en ${clipPct.toFixed(1)}% del audio. Baja el volumen al grabar.` });
@@ -905,14 +911,14 @@
     if (snr < 15) issues.push({ level: 'warn', text: `Mucho ruido de fondo (SNR ${isFinite(snr) ? snr.toFixed(0) : '∞'} dB). Busca un sitio más silencioso.` });
     else if (snr < 25) issues.push({ level: 'info', text: `Ruido de fondo perceptible (SNR ${snr.toFixed(0)} dB).` });
 
-    let score = 100;
-    if (duration < 6) score -= 30; else if (duration < 10) score -= 12; else if (duration < 15) score -= 4;
+    let score = silent ? 0 : 100;
+    if (!silent && duration < 6) score -= 30; else if (!silent && duration < 10) score -= 12; else if (!silent && duration < 15) score -= 4;
     if (clipPct > 0.5) score -= 25; else if (clipPct > 0.1) score -= 8;
     if (peakDb < -18) score -= 15; else if (peakDb < -12) score -= 5;
     if (isFinite(snr)) { if (snr < 15) score -= 25; else if (snr < 25) score -= 10; }
     score = Math.max(0, Math.min(100, Math.round(score)));
 
-    return { duration, peakDb, snr, clipPct, score, issues };
+    return { duration, peakDb, snr, clipPct, score, issues, silent };
   }
 
   /* ── Recorte de silencios en los extremos ─────────────────────── */
@@ -928,6 +934,7 @@
     let start = 0;
     let end = pcm.length;
     while (start < pcm.length && !isLoud(start)) start += frame;
+    if (start >= pcm.length) return pcm; // señal totalmente silenciosa: no crear un fragmento artificial
     while (end > start && !isLoud(Math.max(0, end - frame))) end -= frame;
     const pad = Math.floor(rate * padMs / 1000);
     start = Math.max(0, start - pad);
@@ -973,6 +980,7 @@
   let pendingPcm = null;
   let pendingKind = 'sample'; // 'sample' | 'consent' | 'merge'
   let pendingPreviewUrl = null;
+  let qualityReturnFocus = null;
 
   function verdictFor(score) {
     if (score >= 85) return { text: 'Excelente para clonar', cls: 'good' };
@@ -1023,6 +1031,7 @@
     if (kind === 'consent') { $('#qualityConsent').checked = true; consentLine.style.display = 'none'; }
     else consentLine.style.display = '';
 
+    qualityReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     $('#qualityModal').classList.remove('hide');
     $('#qualityName').focus();
   }
@@ -1031,6 +1040,30 @@
     $('#qualityModal').classList.add('hide');
     if (pendingPreviewUrl) { URL.revokeObjectURL(pendingPreviewUrl); pendingPreviewUrl = null; }
     pendingPcm = null;
+    const returnTo = qualityReturnFocus;
+    qualityReturnFocus = null;
+    if (returnTo?.isConnected) returnTo.focus();
+  }
+
+  function trapQualityFocus(event) {
+    const modal = $('#qualityModal');
+    if (modal.classList.contains('hide')) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeQualityModal();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusables = $$('input, button, audio[controls], [href], select, textarea, [tabindex]:not([tabindex="-1"])', modal)
+      .filter(element => !element.disabled && !element.hidden);
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first.focus();
+    }
   }
 
   async function confirmQualitySave() {
@@ -1043,6 +1076,7 @@
     if ($('#optTrim').checked) pcm = trimSilence(pcm);
     if ($('#optNormalize').checked) pcm = normalizePeak(pcm);
     const analysis = analyzeSample(pcm);
+    if (analysis.silent) return showToast('No se detecta voz útil. Graba o importa otra muestra.');
     const wav = floatToWav(pcm);
 
     try {
@@ -1152,6 +1186,7 @@
     const bytes = new Uint8Array(arrayBuffer);
     const view = new DataView(arrayBuffer);
     const decoder = new TextDecoder();
+    if (bytes.length < 22) throw new Error('ZIP demasiado corto.');
 
     let eocd = -1;
     for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 65536); i--) {
@@ -1160,24 +1195,35 @@
     if (eocd < 0) throw new Error('No es un ZIP válido.');
     const count = view.getUint16(eocd + 10, true);
     let pointer = view.getUint32(eocd + 16, true);
+    if (count > 500) throw new Error('ZIP con demasiadas entradas.');
 
     const entries = [];
     for (let i = 0; i < count; i++) {
-      if (view.getUint32(pointer, true) !== 0x02014b50) throw new Error('Directorio central corrupto.');
+      if (pointer + 46 > bytes.length || view.getUint32(pointer, true) !== 0x02014b50) {
+        throw new Error('Directorio central corrupto.');
+      }
+      const expectedCrc = view.getUint32(pointer + 16, true);
       const method = view.getUint16(pointer + 10, true);
       const compSize = view.getUint32(pointer + 20, true);
       const nameLen = view.getUint16(pointer + 28, true);
       const extraLen = view.getUint16(pointer + 30, true);
       const commentLen = view.getUint16(pointer + 32, true);
       const localOffset = view.getUint32(pointer + 42, true);
+      const nextPointer = pointer + 46 + nameLen + extraLen + commentLen;
+      if (nextPointer > bytes.length || localOffset + 30 > bytes.length) throw new Error('ZIP truncado.');
       const name = decoder.decode(bytes.subarray(pointer + 46, pointer + 46 + nameLen));
 
       if (method !== 0) throw new Error(`Entrada comprimida no soportada: ${name}. Usa un ZIP exportado por Voice Cari.`);
+      if (view.getUint32(localOffset, true) !== 0x04034b50) throw new Error(`Cabecera local corrupta: ${name}.`);
       const localNameLen = view.getUint16(localOffset + 26, true);
       const localExtraLen = view.getUint16(localOffset + 28, true);
       const dataStart = localOffset + 30 + localNameLen + localExtraLen;
-      entries.push({ name, data: bytes.slice(dataStart, dataStart + compSize) });
-      pointer += 46 + nameLen + extraLen + commentLen;
+      const dataEnd = dataStart + compSize;
+      if (dataEnd > bytes.length) throw new Error(`Entrada truncada: ${name}.`);
+      const data = bytes.slice(dataStart, dataEnd);
+      if (crc32(data) !== expectedCrc) throw new Error(`CRC incorrecto: ${name}.`);
+      entries.push({ name, data });
+      pointer = nextPointer;
     }
     return entries;
   }
@@ -1186,7 +1232,7 @@
   function wavDuration(bytes) {
     try {
       const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      if (view.getUint32(0, false) !== 0x52494646) return 0; // "RIFF"
+      if (view.getUint32(0, false) !== 0x52494646 || view.getUint32(8, false) !== 0x57415645) return 0; // RIFF/WAVE
       let pointer = 12;
       let byteRate = 0;
       while (pointer + 8 <= bytes.length) {
@@ -1237,8 +1283,9 @@
     const wavEntries = entries.filter(entry => /\.wav$/i.test(entry.name) && entry.data.length > 44);
     if (!wavEntries.length) return showToast('El ZIP no contiene muestras WAV.');
 
-    // Si el ZIP no trae registro de consentimiento propio, se confirma una vez para todas.
-    if (!manifest?.samples?.length && !confirm(CONSENT_TEXT)) {
+    // Un manifest puede estar manipulado: siempre se exige una confirmación nueva
+    // en el navegador que recibe el banco, aunque el ZIP traiga metadatos previos.
+    if (!confirm(CONSENT_TEXT)) {
       return showToast('Importación cancelada: se requiere confirmar el consentimiento.');
     }
 
@@ -1246,22 +1293,30 @@
     try { existing = await idb.all(); } catch { /* sin IDB */ }
     let added = 0;
     let skipped = 0;
+    let invalid = 0;
     for (const entry of wavEntries) {
       const meta = manifest?.samples?.find(sampleMeta => sampleMeta.file === entry.name);
       const name = (meta?.name || entry.name.replace(/^muestras\//, '').replace(/\.wav$/i, '')).trim() || 'Muestra importada';
+      const duration = wavDuration(entry.data);
+      if (!duration) { invalid++; continue; }
       if (existing.some(sample => sample.name === name && sample.bytes === entry.data.length)) { skipped++; continue; }
       await idb.put({
         id: uid(), name,
         createdAt: meta?.createdAt || new Date().toISOString(),
-        duration: meta?.duration ?? wavDuration(entry.data),
+        duration,
         bytes: entry.data.length,
-        consent: meta?.consent || { confirmed: true, at: new Date().toISOString(), importedWithoutManifest: true },
+        consent: {
+          ...(meta?.consent || {}),
+          confirmed: true,
+          reauthorizedAt: new Date().toISOString(),
+          importedWithoutManifest: !meta?.consent
+        },
         wav: new Blob([entry.data], { type: 'audio/wav' })
       });
       added++;
     }
     await renderBank();
-    showToast(`Banco importado: ${added} añadida${added === 1 ? '' : 's'}${skipped ? `, ${skipped} duplicada${skipped === 1 ? '' : 's'} omitida${skipped === 1 ? '' : 's'}` : ''}.`);
+    showToast(`Banco importado: ${added} añadida${added === 1 ? '' : 's'}${skipped ? `, ${skipped} duplicada${skipped === 1 ? '' : 's'} omitida${skipped === 1 ? '' : 's'}` : ''}${invalid ? `, ${invalid} WAV inválido${invalid === 1 ? '' : 's'} rechazado${invalid === 1 ? '' : 's'}` : ''}.`);
   }
 
   async function renderBank() {
@@ -1317,7 +1372,23 @@
   }
 
   /* ── Motor local de clonación ─────────────────────────────────── */
-  const engineBase = () => ($('#engineUrl').value.trim() || 'http://127.0.0.1:8020').replace(/\/+$/, '');
+  const isLoopbackHost = host => ['localhost', '127.0.0.1'].includes(String(host || '').toLowerCase());
+  const defaultEngineUrl = () => (
+    ['http:', 'https:'].includes(location.protocol) && isLoopbackHost(location.hostname)
+      ? location.origin
+      : 'http://127.0.0.1:8020'
+  );
+  const engineBase = () => ($('#engineUrl').value.trim() || defaultEngineUrl()).replace(/\/+$/, '');
+
+  function validateEngineUrl() {
+    try {
+      const url = new URL(engineBase());
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('protocol');
+      return url.origin;
+    } catch {
+      throw new Error('La dirección del motor no es una URL HTTP válida.');
+    }
+  }
   const setEngineStatus = (text, ok) => {
     const pill = $('#engineStatus');
     pill.textContent = text;
@@ -1327,23 +1398,29 @@
 
   async function testEngine() {
     setEngineStatus('Comprobando…', false);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
-      const response = await fetch(`${engineBase()}/health`, { signal: controller.signal });
-      clearTimeout(timer);
+      const base = validateEngineUrl();
+      const response = await fetch(`${base}/health`, { signal: controller.signal, cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       if (data.status !== 'ok') throw new Error('estado inesperado');
       const mode = data.demo ? 'demo' : (data.device || 'cpu');
       setEngineStatus(`Conectado (${mode})`, true);
-      showToast(data.model_loaded
-        ? `Motor listo en ${mode.toUpperCase()}.`
-        : 'Motor conectado. El modelo se cargará en la primera generación.');
+      showToast(data.demo
+        ? 'Motor demo conectado: valida la tubería, pero no clona la voz.'
+        : (data.model_loaded
+          ? `Motor listo en ${mode.toUpperCase()}.`
+          : 'Motor conectado. El modelo se cargará en la primera generación.'));
       return true;
-    } catch {
+    } catch (error) {
       setEngineStatus('Sin conexión', false);
-      showToast('No se pudo conectar. Arranca el motor local: python server/xtts_server.py');
+      const reason = error?.name === 'AbortError' ? 'La conexión agotó el tiempo de espera.' : '';
+      showToast(reason || 'No se pudo conectar. Abre la app desde el servidor local y comprueba que el motor está arrancado.');
       return false;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -1365,12 +1442,12 @@
       const infoParts = [enc.encode('INFO')];
       let infoLen = 4;
       for (const [id, value] of fields) {
-        let data = enc.encode(value + '\0');
-        if (data.length % 2) data = new Uint8Array([...data, 0]);
+        const raw = enc.encode(value + '\0');
+        const data = raw.length % 2 ? new Uint8Array([...raw, 0]) : raw;
         const head = new Uint8Array(8);
-        new DataView(head.buffer).setUint32(0, 0, false); // placeholder id
         head.set(enc.encode(id), 0);
-        new DataView(head.buffer).setUint32(4, data.length, true);
+        // El tamaño RIFF no incluye el byte de padding par.
+        new DataView(head.buffer).setUint32(4, raw.length, true);
         infoParts.push(head, data);
         infoLen += 8 + data.length;
       }
@@ -1398,6 +1475,13 @@
   let cloneBlob = null;
   let cloning = false;
 
+  async function isValidWavBlob(blob) {
+    const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+    return head.length >= 12
+      && String.fromCharCode(...head.slice(0, 4)) === 'RIFF'
+      && String.fromCharCode(...head.slice(8, 12)) === 'WAVE';
+  }
+
   async function generateClone() {
     if (cloning) return showToast('Ya hay una generación en curso.');
     if (!$('#cloneConsent').checked) {
@@ -1418,14 +1502,21 @@
     $('#cloneGo').disabled = true;
     setCloneStatus('Generando…');
     const startedAt = performance.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15 * 60 * 1000);
     try {
+      const base = validateEngineUrl();
       const form = new FormData();
       form.append('text', text);
       form.append('language', $('#cloneLang').value);
       form.append('reference', sample.wav, 'reference.wav');
-      const response = await fetch(`${engineBase()}/clone`, { method: 'POST', body: form });
-      if (!response.ok) throw new Error((await response.text().catch(() => '')) || `HTTP ${response.status}`);
+      const response = await fetch(`${base}/clone`, { method: 'POST', body: form, signal: controller.signal });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail || `HTTP ${response.status}`);
+      }
       let audio = await response.blob();
+      if (!(await isValidWavBlob(audio))) throw new Error('El motor no devolvió un WAV válido.');
       audio = await tagSyntheticProvenance(audio); // marca "voz sintética" en los metadatos
       if (cloneUrl) URL.revokeObjectURL(cloneUrl);
       cloneBlob = audio;
@@ -1440,11 +1531,16 @@
       player.play().catch(() => {});
     } catch (error) {
       setCloneStatus('Error');
-      const detail = String(error?.message || '').slice(0, 120);
-      showToast(detail.includes('Failed to fetch')
-        ? 'Motor no accesible. Comprueba que está arrancado y prueba la conexión.'
-        : `El motor devolvió un error: ${detail || 'desconocido'}`);
+      const detail = String(error?.message || '').slice(0, 160);
+      if (error?.name === 'AbortError') {
+        showToast('La generación superó el tiempo máximo de 15 minutos. Revisa el motor y la carga del equipo.');
+      } else {
+        showToast(detail.includes('Failed to fetch')
+          ? 'Motor no accesible. Abre la app desde el servidor local y prueba la conexión.'
+          : `El motor devolvió un error: ${detail || 'desconocido'}`);
+      }
     } finally {
+      clearTimeout(timeout);
       cloning = false;
       $('#cloneGo').disabled = false;
     }
@@ -1487,7 +1583,7 @@
 
   function initClone() {
     renderBank();
-    $('#engineUrl').value = store.get('engineUrl', 'http://127.0.0.1:8020');
+    $('#engineUrl').value = store.get('engineUrl', defaultEngineUrl());
     $('#engineUrl').addEventListener('change', () => store.set('engineUrl', $('#engineUrl').value.trim()));
     $('#testEngine').addEventListener('click', testEngine);
     $('#exportBank').addEventListener('click', exportBank);
@@ -1499,6 +1595,7 @@
     $('#qualityCancel').addEventListener('click', closeQualityModal);
     $('#qualitySave').addEventListener('click', confirmQualitySave);
     $('#qualityModal').addEventListener('click', event => { if (event.target === $('#qualityModal')) closeQualityModal(); });
+    $('#qualityModal').addEventListener('keydown', trapQualityFocus);
 
     // Consentimiento grabado: reutiliza el grabador y abre el modal en modo 'consent'
     $('#recordConsent').addEventListener('click', () => {
@@ -1558,12 +1655,15 @@
     $('#cloneDownload').addEventListener('click', () => {
       if (cloneBlob) downloadBlob(`voice-cari-clon-${new Date().toISOString().slice(0, 10)}.wav`, cloneBlob);
     });
+
+    // Cuando la app la sirve el propio motor, la conexión debería ser automática.
+    if (isLoopbackHost(location.hostname)) setTimeout(testEngine, 350);
   }
 
   /* ── Reset ────────────────────────────────────────────────────── */
   function initReset() {
     $('#resetApp').addEventListener('click', () => {
-      if (!confirm('¿Resetear Voice Cari en este navegador? Se borrarán texto, perfiles, proyectos y consentimiento local.')) return;
+      if (!confirm('¿Resetear Voice Cari en este navegador? Se borrarán texto, perfiles, proyectos, banco de voz y consentimiento local.')) return;
       Object.keys(localStorage)
         .filter(k => k.startsWith('voiceCari:'))
         .forEach(k => localStorage.removeItem(k));
@@ -1575,7 +1675,8 @@
 
   /* ── PWA ──────────────────────────────────────────────────────── */
   function initPwa() {
-    if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    const secureEnough = location.protocol === 'https:' || isLoopbackHost(location.hostname);
+    if ('serviceWorker' in navigator && secureEnough) {
       navigator.serviceWorker.register('./sw.js').catch(() => { /* PWA opcional */ });
     }
   }

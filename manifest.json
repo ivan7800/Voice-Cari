@@ -1,7 +1,7 @@
 {
   "name": "Voice Cari — Authorized Voice Studio",
   "short_name": "Voice Cari",
-  "description": "Estudio local de voz sintética autorizada: narración, grabación, banco de voz con control de calidad y consentimiento, y clonación mediante motor XTTS 100% local.",
+  "description": "Estudio de voz sintética autorizada con narración, grabación, banco de voz y clonación mediante un motor XTTS ejecutado localmente.",
   "id": "./",
   "scope": "./",
   "start_url": "./index.html",
