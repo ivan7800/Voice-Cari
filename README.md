@@ -1,72 +1,115 @@
-# Voice Cari v3.3.0 — Authorized Voice Studio
+# Voice Cari v3.3.1 — Authorized Voice Studio
 
-App web estática premium para GitHub Pages, orientada a **voz sintética autorizada**: narración con voces del navegador, grabación local de muestras, perfiles vocales con consentimiento y exportación de paquetes API-ready. Proyecto del ecosistema **Universo 404**.
+Voice Cari es un estudio de voz sintética autorizada del ecosistema **Universo 404**. Combina:
 
-**100 % local. Sin claves API. Sin subida de audio a servidores. Frontend con cero dependencias.**
+- Un frontend web/PWA sin claves API.
+- Narración con las voces instaladas en el navegador.
+- Grabación e importación de muestras propias o autorizadas.
+- Banco de voz local en IndexedDB con análisis, recorte y normalización.
+- Clonación real mediante un servidor local XTTS-v2 incluido en `server/`.
 
-## v3.0.0 — Clonación de voz local
+Los textos, perfiles, proyectos y muestras se mantienen en el dispositivo. El servidor escucha por defecto solo en `127.0.0.1`.
 
-La pestaña **Clonar** conecta con un motor XTTS-v2 que corre **en tu propio ordenador** (carpeta `server/`, ver `server/README-SERVIDOR.md`). Flujo: graba o importa una muestra (10–30 s) → se convierte a WAV en el navegador → se guarda con consentimiento en IndexedDB → escribe el texto en el Studio → genera → WAV con la voz clonada. La voz nunca sale de tu máquina. Modo demo sin modelo: `VOICE_CARI_DEMO=1 python server/xtts_server.py`. Consejo: abre la app directamente en `http://127.0.0.1:8020` (el motor la sirve) y todo funciona sin configurar nada.
+## Importante: qué funciona en GitHub Pages
 
-**Calidad y procesado (v3.3)**: al guardar una muestra, Voice Cari la analiza (duración, nivel, saturación, ruido) y te da una puntuación con avisos antes de guardarla. Puede recortar silencios y normalizar el volumen automáticamente. Puedes **fusionar** varias muestras en una referencia larga (mejor para clonar) y grabar un **consentimiento hablado** que queda archivado como prueba. Cada audio generado lleva una etiqueta interna de "voz sintética".
+GitHub Pages puede alojar el **frontend**, pero no puede ejecutar Python ni XTTS. Por tanto:
 
-**Copia de seguridad de la voz**: el botón **Exportar banco** descarga un ZIP con los WAV de referencia y su registro de consentimiento. Guárdalo en varios sitios (disco externo, nube): es el molde de la voz y sirve en cualquier navegador o PC — impórtalo por el mismo campo de importación.
+- La narración del navegador, el grabador, los perfiles, la biblioteca y los paquetes JSON funcionan como web estática.
+- La pestaña **Clonar** necesita que `server/xtts_server.py` esté ejecutándose en el ordenador del usuario.
+- La forma más fiable de usar la clonación es abrir la app desde el propio servidor local: `http://127.0.0.1:8020`.
+- No abras `index.html` directamente con `file://` para clonar.
 
-## Novedades v2.0.0 — Rediseño completo
+## Inicio rápido en modo demo
 
-- **Nueva identidad visual "consola de estudio"**: paneles tipo rack con placa identificadora, LEDs de estado, luz de tally REC y ecualizador animado en el hero. Adiós al glassmorphism.
-- **Tipografía de sistema** (display condensado + monoespaciada técnica): cero fuentes externas, la PWA sigue funcionando 100 % offline.
-- **4 skins recalibradas** (Gold Noir, Cari Blue, Crimson, Aurora) con contraste verificado WCAG AA/AAA en todos los pares texto/fondo.
-- **Accesibilidad reforzada**: skip-link, focus trap real en la puerta legal, foco visible global, `aria-current` en navegación, `role="status"` en indicadores, medidor con `role="img"`, `prefers-reduced-motion` completo (pausa ecualizador y LEDs) y estilos de impresión.
-- **SEO completo**: canonical, robots, Open Graph, Twitter Card y datos estructurados JSON-LD (`WebApplication`).
-- **Código más limpio**: delegación de eventos en listas de perfiles/proyectos (antes se re-vinculaban listeners en cada render), guardado de borrador con debounce (menos escrituras en localStorage), color del medidor derivado de la skin activa.
-- **Compatibilidad de datos**: se conservan las claves `voiceCari:*`, así que perfiles, proyectos, borrador y consentimiento de v1.x se mantienen al actualizar.
-- Service worker con caché renovada (`voice-cari-v3`).
+El modo demo prueba todo el recorrido sin descargar XTTS. Genera un tono de prueba; **no clona la voz**.
 
-## Funciones
+### Windows
 
-- Pantalla legal obligatoria con triple consentimiento antes de entrar.
-- Editor de narración con contador de caracteres, palabras y tiempo estimado.
-- Presets: terror cósmico, tráiler oscuro, audiolibro y corporativo.
-- Lectura con voces locales (SpeechSynthesis) con troceo automático anti-corte de Chrome y voz seleccionada persistente.
-- Grabador local (MediaRecorder) con medidor de onda en vivo, compatible con Chrome, Edge, Firefox y Safari (WebM/Opus o MP4/AAC según navegador).
-- Perfiles vocales autorizados con tipo de consentimiento registrado.
-- Biblioteca de proyectos locales (máx. 30) con cargar/exportar/eliminar.
-- Preparador de payload API-ready **sin claves** para backend seguro o proveedor autorizado.
-- PWA instalable con service worker network-first (las actualizaciones llegan siempre).
-
-## Límites legales y técnicos (léelo)
-
-- **Esta versión no clona voces reales dentro del navegador.** Es un estudio local de narración, muestras y preparación de perfiles.
-- Solo debe usarse con **voz propia o voces con permiso explícito y verificable**.
-- Todo audio generado o transformado debe identificarse como **sintético** cuando pueda inducir a confusión.
-- Prohibido usarla para suplantación, fraude, acoso, llamadas engañosas o desinformación. Ver `LICENSE_NOTICE.md`.
-- GitHub Pages es público: **nunca subas claves API al repositorio**. La integración real con un proveedor autorizado debe hacerse desde un backend propio que guarde la clave en variables de entorno del servidor.
-
-## Arquitectura futura recomendada (API segura)
-
-```
-Navegador (Voice Cari) ──payload JSON──▶ Backend propio (clave en env) ──▶ Proveedor TTS/clonación autorizado
+```powershell
+cd voice-cari-v3\server
+py -3.11 -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements-base.txt
+$env:VOICE_CARI_DEMO = "1"
+python xtts_server.py
 ```
 
-El botón «Generar paquete API-ready» produce exactamente el JSON que ese backend necesitaría, incluyendo el registro de consentimiento.
+También puedes ejecutar `server/start-demo.bat` después de instalar las dependencias.
 
-## Publicación en GitHub Pages
+Abre después:
 
-1. Crea un repositorio (por ejemplo `voice-cari`).
-2. Sube **todo el contenido de esta carpeta** a la raíz del repositorio (no la carpeta contenedora).
-3. Settings → Pages → Source: *Deploy from a branch* → rama `main`, carpeta `/ (root)` → Save.
-4. Espera 1–2 minutos y abre `https://TU_USUARIO.github.io/voice-cari/`.
-5. Gracias a la caché renovada (`voice-cari-v3`), quien tuviera la v1 instalada recibirá la v2 con una recarga normal.
+```text
+http://127.0.0.1:8020
+```
 
-Todas las rutas son relativas: funciona igual en raíz de dominio o en subcarpeta de proyecto.
+## Motor real XTTS-v2
 
-> Si tu URL final no es `ivan7800.github.io/voice-cari/`, actualiza el `<link rel="canonical">` y las metas `og:url` / `og:image` de `index.html`.
+1. Lee la licencia aplicable al modelo XTTS-v2 y confirma que tu uso está permitido.
+2. Activa el entorno virtual.
+3. Instala el motor real con `pip install -r requirements.txt`.
+4. Declara la aceptación de la licencia.
+5. Inicia el servidor.
+
+### Windows PowerShell
+
+```powershell
+$env:COQUI_TOS_AGREED = "1"
+python xtts_server.py
+```
+
+### Linux/macOS
+
+```bash
+export COQUI_TOS_AGREED=1
+python xtts_server.py
+```
+
+La primera generación puede descargar un modelo grande y tardar varios minutos. El modo real requiere más recursos que el modo demo; una GPU NVIDIA compatible puede reducir mucho la latencia.
+
+## Flujo recomendado
+
+1. Acepta la puerta de consentimiento.
+2. Graba o importa una muestra limpia de 10–30 segundos o más.
+3. Revisa el análisis de calidad.
+4. Confirma que la voz es propia o que existe autorización expresa.
+5. Guarda la muestra en el banco.
+6. Escribe el texto en **Studio**.
+7. Abre **Clonar**, comprueba el motor y selecciona la muestra.
+8. Genera, escucha y descarga el WAV.
+9. Identifica el resultado como voz sintética cuando pueda confundirse con una grabación real.
+
+## Seguridad y privacidad
+
+- El servidor se enlaza a `127.0.0.1` por defecto.
+- Las webs externas no autorizadas reciben `403`; CORS no está abierto globalmente.
+- Los WAV se validan como PCM de 16 bits antes de procesarse.
+- Se aplican límites de texto, tamaño y duración.
+- Los archivos temporales se eliminan al finalizar cada petición.
+- Los errores internos se registran en la consola del servidor sin exponer rutas o trazas al navegador.
+- Un banco ZIP importado exige una confirmación nueva de autorización, aunque incluya un manifiesto previo.
+- No subas claves, modelos, muestras de voz ni entornos virtuales al repositorio.
+
+Para permitir otro frontend autorizado, define una lista separada por comas:
+
+```powershell
+$env:VOICE_CARI_ALLOWED_ORIGINS = "https://ejemplo.com,https://otro.example"
+```
+
+El origen público predeterminado es `https://ivan7800.github.io`. Puede cambiarse con `VOICE_CARI_PUBLIC_ORIGIN`.
+
+## Publicación del frontend en GitHub Pages
+
+1. Sube el contenido de esta carpeta a la raíz del repositorio.
+2. En GitHub: **Settings → Pages → Deploy from a branch**.
+3. Selecciona `main` y `/ (root)`.
+4. Revisa en `index.html` las etiquetas `canonical`, `og:url` y `og:image` si cambia la URL final.
+
+La clonación seguirá requiriendo el servidor local.
 
 ## Estructura
 
-```
-voice-cari/
+```text
+voice-cari-v3/
 ├── index.html
 ├── styles.css
 ├── app.js
@@ -75,23 +118,55 @@ voice-cari/
 ├── README.md
 ├── CHANGELOG.md
 ├── LICENSE_NOTICE.md
-└── assets/
-    └── icons/
-        ├── icon.svg
-        ├── icon-192.png
-        └── icon-512.png
+├── AUDIT_REPORT.md
+├── .gitignore
+├── assets/
+│   └── icons/
+├── server/
+│   ├── xtts_server.py
+│   ├── requirements-base.txt
+│   ├── requirements.txt
+│   ├── README-SERVIDOR.md
+│   ├── start-demo.bat
+│   └── start-real.bat
+└── tests/
+    ├── smoke_server.py
+    ├── e2e_frontend.py
+    └── requirements-e2e.txt
 ```
 
-## Solución de problemas
+## Pruebas
 
-| Problema | Causa | Solución |
-|---|---|---|
-| No aparecen voces | El sistema aún no las cargó | Espera 1–2 s; se recargan solas con `voiceschanged` |
-| El micrófono no graba | Permiso denegado | Candado de la barra de direcciones → permitir micrófono |
-| La lectura se corta a los ~15 s | Bug de Chrome | Corregido: el texto se trocea por frases automáticamente |
-| En Safari no descarga WebM | Safari graba MP4/AAC | Corregido: detección de formato y extensión `.m4a` |
-| Cambios no aparecen tras actualizar el repo | Caché del SW | Navegación network-first + caché v3; recarga normal basta |
+Prueba automatizada del servidor en modo demo:
 
-## Privacidad
+```bash
+python tests/smoke_server.py
+```
 
-Texto, perfiles, proyectos y consentimiento se guardan solo en `localStorage` de tu navegador. Las grabaciones viven en memoria hasta que las descargas o las borras. El botón **Reset** elimina todos los datos locales de la app.
+Prueba E2E opcional con Chromium:
+
+```bash
+pip install -r tests/requirements-e2e.txt
+python -m playwright install chromium
+python tests/e2e_frontend.py
+```
+
+Comprobaciones básicas de sintaxis:
+
+```bash
+node --check app.js
+python -m py_compile server/xtts_server.py
+python -m json.tool manifest.json
+```
+
+## Limitaciones verificables
+
+- El modo demo solo valida la tubería.
+- La clonación real depende de la instalación de Coqui TTS, PyTorch, el modelo y la compatibilidad del equipo.
+- El proyecto no incluye el modelo ni muestras de voz.
+- No se han incluido métricas MOS, PESQ, STOI o similitud de hablante sin mediciones reales.
+- La cancelación del navegador puede detener la espera del cliente, pero no garantiza interrumpir inmediatamente un cálculo ya iniciado dentro del modelo.
+
+## Uso responsable
+
+Solo debe utilizarse con voz propia o con autorización expresa y verificable. Quedan fuera del uso previsto la suplantación, el fraude, el acoso, la desinformación y cualquier uso que vulnere derechos de terceros. Consulta `LICENSE_NOTICE.md`.

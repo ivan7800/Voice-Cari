@@ -8,7 +8,7 @@
 
   <!-- SEO -->
   <title>Voice Cari — Estudio local de voz sintética autorizada | Universo 404</title>
-  <meta name="description" content="Voice Cari: estudio de voz 100% local. Narración con voces del navegador, grabación de muestras propias, perfiles vocales con consentimiento y paquetes API-ready sin claves. Sin backend, sin subida de audio." />
+  <meta name="description" content="Voice Cari: estudio de voz local con narración del navegador, grabación autorizada y clonación mediante un motor XTTS que se ejecuta en tu propio ordenador. Sin claves en el frontend." />
   <meta name="keywords" content="voz sintética, narración, text to speech, grabación de voz, audiolibro, TTS, estudio de voz, PWA" />
   <meta name="author" content="Universo 404" />
   <meta name="robots" content="index, follow" />
@@ -18,7 +18,7 @@
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Universo 404" />
   <meta property="og:title" content="Voice Cari — Estudio local de voz sintética autorizada" />
-  <meta property="og:description" content="Narración, grabación local y perfiles vocales con consentimiento. 100% local, sin backend, sin claves API." />
+  <meta property="og:description" content="Narración, grabación autorizada y clonación mediante un motor XTTS local. Sin claves en el frontend y con control de consentimiento." />
   <meta property="og:url" content="https://ivan7800.github.io/voice-cari/" />
   <meta property="og:image" content="https://ivan7800.github.io/voice-cari/assets/icons/icon-512.png" />
   <meta property="og:locale" content="es_ES" />
@@ -26,7 +26,7 @@
   <!-- Twitter -->
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="Voice Cari — Estudio local de voz sintética autorizada" />
-  <meta name="twitter:description" content="Narración, grabación local y perfiles vocales con consentimiento. 100% local y sin claves." />
+  <meta name="twitter:description" content="Narración, grabación autorizada y clonación mediante un motor XTTS local, sin claves en el frontend." />
   <meta name="twitter:image" content="https://ivan7800.github.io/voice-cari/assets/icons/icon-512.png" />
 
   <meta name="theme-color" content="#0b0a08" />
@@ -46,7 +46,7 @@
     "applicationCategory": "MultimediaApplication",
     "operatingSystem": "Web",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
-    "description": "Estudio local de voz sintética autorizada: narración con voces del navegador, grabación de muestras, perfiles con consentimiento y paquetes API-ready sin claves.",
+    "description": "Estudio local de voz sintética autorizada: narración, grabación y clonación mediante un motor XTTS ejecutado en el ordenador del usuario.",
     "inLanguage": "es",
     "creator": { "@type": "Organization", "name": "Universo 404" }
   }
@@ -341,8 +341,9 @@
               <button id="testEngine" class="btn btn-outline">Probar conexión</button>
             </div>
             <p class="notice" id="engineInfo">
-              Arranca el motor con <code>python server/xtts_server.py</code>. La primera vez descargará
-              el modelo (~1,9&nbsp;GB). Para probar la tubería sin modelo: <code>VOICE_CARI_DEMO=1</code>.
+              Para clonar, ejecuta el servidor y abre <code>http://127.0.0.1:8020</code>; no abras el archivo
+              <code>index.html</code> directamente. La primera generación real descarga el modelo. Para probar
+              la tubería sin clonación: <code>VOICE_CARI_DEMO=1 python server/xtts_server.py</code>.
             </p>
           </div>
         </article>
@@ -572,7 +573,7 @@
   </main>
 
   <footer class="footer">
-    <span>VOICE CARI v3.3.0 · Universo 404 · GitHub Pages Ready</span>
+    <span>VOICE CARI v3.3.1 · Universo 404 · GitHub Pages Ready</span>
     <span>Datos locales · consentimiento · voz sintética identificable</span>
   </footer>
 
