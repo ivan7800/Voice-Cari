@@ -1,6 +1,6 @@
-/* Voice Cari SW v3.3.2 — network-first para navegación (actualizaciones inmediatas),
+/* Voice Cari SW v4.1.0 — network-first para navegación (actualizaciones inmediatas),
    cache-first para assets estáticos, solo mismo origen. */
-const CACHE_NAME = 'voice-cari-v10';
+const CACHE_NAME = 'voice-cari-v12';
 const ASSETS = [
   './',
   './index.html',

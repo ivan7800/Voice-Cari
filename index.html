@@ -13,22 +13,22 @@
   <meta name="keywords" content="voz sintética, narración, text to speech, grabación de voz, audiolibro, TTS, estudio de voz, PWA" />
   <meta name="author" content="Universo 404" />
   <meta name="robots" content="index, follow" />
-  <link rel="canonical" href="https://ivan7800.github.io/voice-cari/" />
+  <link rel="canonical" href="https://ivan7800.github.io/Voice-Cari/" />
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Universo 404" />
   <meta property="og:title" content="Voice Cari — Estudio local de voz sintética autorizada" />
   <meta property="og:description" content="Narración, grabación autorizada y clonación mediante un motor XTTS local. Sin claves en el frontend y con control de consentimiento." />
-  <meta property="og:url" content="https://ivan7800.github.io/voice-cari/" />
-  <meta property="og:image" content="https://ivan7800.github.io/voice-cari/assets/icons/icon-512.png" />
+  <meta property="og:url" content="https://ivan7800.github.io/Voice-Cari/" />
+  <meta property="og:image" content="https://ivan7800.github.io/Voice-Cari/assets/icons/icon-512.png" />
   <meta property="og:locale" content="es_ES" />
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="Voice Cari — Estudio local de voz sintética autorizada" />
   <meta name="twitter:description" content="Narración, grabación autorizada y clonación mediante un motor XTTS local, sin claves en el frontend." />
-  <meta name="twitter:image" content="https://ivan7800.github.io/voice-cari/assets/icons/icon-512.png" />
+  <meta name="twitter:image" content="https://ivan7800.github.io/Voice-Cari/assets/icons/icon-512.png" />
 
   <meta name="theme-color" content="#0b0a08" />
   <link rel="icon" type="image/svg+xml" href="assets/icons/icon.svg" />
@@ -43,7 +43,7 @@
     "@type": "WebApplication",
     "name": "Voice Cari",
     "alternateName": "Voice Cari — Authorized Voice Studio",
-    "url": "https://ivan7800.github.io/voice-cari/",
+    "url": "https://ivan7800.github.io/Voice-Cari/",
     "applicationCategory": "MultimediaApplication",
     "operatingSystem": "Web",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
@@ -194,7 +194,7 @@
         <div class="console-readout">
           <span>MODO SEGURO</span>
           <span>LOCAL / MOTOR OPCIONAL</span>
-          <span>v3.3.2</span>
+          <span>v4.1.0</span>
         </div>
       </div>
     </section>
@@ -404,6 +404,18 @@
             <div class="btn-stack">
               <button id="cloneDownload" class="btn btn-outline" disabled>Descargar WAV</button>
             </div>
+            <section class="audiobook-panel" aria-label="Producción de audiolibros">
+              <h3>Producción de audiolibros · V4.1</h3>
+              <p class="notice">Divide el texto del Studio en fragmentos y genera un WAV unificado por capítulo con tu motor local. Los fragmentos terminados se guardan localmente y pueden recuperarse tras cerrar la pestaña. El capítulo final se descarga de forma explícita.</p>
+              <label class="field"><span>Nombre del capítulo / archivo</span><input id="bookChapter" class="input" maxlength="100" placeholder="Capítulo 01" value="Capitulo 01" /></label>
+              <label class="field"><span>Pausa entre fragmentos (ms)</span><select id="bookPause" class="select"><option value="0">Sin pausa</option><option value="250">250 ms</option><option value="500" selected>500 ms</option><option value="1000">1000 ms</option></select></label>
+              <div class="btn-stack"><button id="bookStart" class="btn btn-primary">Generar capítulo completo</button><button id="bookCancel" class="btn btn-ghost" disabled>Cancelar capítulo</button></div>
+              <progress id="bookProgress" value="0" max="100" style="width:100%; accent-color:var(--accent, #dba64e)" aria-label="Progreso de generación"></progress>
+              <p id="bookStatus" role="status" aria-live="polite">Sin generación activa.</p><p id="bookResumeHint" class="notice">Comprobando recuperación…</p><button id="bookRestore" class="btn btn-ghost" disabled>Restaurar texto pendiente</button><button id="bookDiscard" class="btn btn-ghost" disabled>Descartar progreso pendiente</button>
+              <audio id="bookAudio" class="player" controls hidden aria-label="Audiolibro generado"></audio>
+              <button id="bookDownload" class="btn btn-outline" disabled>Descargar capítulo WAV</button><button id="bookMp3" class="btn btn-outline" disabled>Descargar capítulo MP3</button>
+              <p class="notice">MP3: conversión mediante FFmpeg en el servidor local. No envía el audio a servicios externos.</p>
+            </section>
             <p class="notice">
               El audio generado es <strong>voz sintética</strong>: identifícalo como tal si lo compartes.
               El texto se toma del editor de la pestaña <strong>Studio</strong>.
@@ -575,7 +587,7 @@
   </main>
 
   <footer class="footer">
-    <span>VOICE CARI v3.3.2 · Universo 404 · GitHub Pages Ready</span>
+    <span>VOICE CARI v4.1.0 · Universo 404 · GitHub Pages Ready</span>
     <span>Datos locales · consentimiento · voz sintética identificable</span>
   </footer>
 

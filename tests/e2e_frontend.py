@@ -81,7 +81,7 @@ def main() -> int:
         manifest = {
             "app": "Voice Cari",
             "kind": "voice-bank",
-            "version": "3.3.2",
+            "version": "4.1.0",
             "samples": [{
                 "file": "muestras/importada.wav",
                 "name": "Banco E2E",

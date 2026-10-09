@@ -1,12 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════
-   VOICE CARI v3.3.2 — Authorized Voice Studio · Universo 404
+   VOICE CARI v4.1.0 — Authorized Voice Studio · Universo 404
    Frontend estático + motor XTTS local opcional. Sin claves en cliente.
    Compatible con datos de v1.x (mismas claves voiceCari:*).
    ═══════════════════════════════════════════════════════════════════ */
 (() => {
   'use strict';
 
-  const APP_VERSION = '3.3.2';
+  const APP_VERSION = '4.1.0';
   const LEGAL_VERSION = 2;
   const MIN_SAMPLE_SECONDS = 3;
   const MAX_SAMPLE_SECONDS = 300;
@@ -1818,6 +1818,262 @@
     }
   }
 
+  /* ── Producción por capítulos: peticiones pequeñas + WAV final ── */
+  // No guarda muestras ni audio generado fuera del navegador; se descarga explícitamente.
+  let bookController = null;
+  let bookUrl = null;
+  let bookBlob = null;
+
+  function splitChapter(text, limit = 1500) {
+    const result = [];
+    let remaining = text.trim();
+    while (remaining) {
+      if (remaining.length <= limit) { result.push(remaining); break; }
+      const prefix = remaining.slice(0, limit + 1);
+      let boundary = Math.max(prefix.lastIndexOf('\n\n'), prefix.lastIndexOf('. '), prefix.lastIndexOf('! '), prefix.lastIndexOf('? '));
+      if (boundary < limit * 0.35) boundary = prefix.lastIndexOf(' ');
+      if (boundary < limit * 0.35) boundary = limit;
+      else if (['.', '!', '?'].includes(prefix[boundary])) boundary++;
+      const chunk = remaining.slice(0, boundary).trim();
+      if (!chunk) throw new Error('No se pudo dividir el texto.');
+      result.push(chunk);
+      remaining = remaining.slice(boundary).trim();
+    }
+    return result;
+  }
+
+  // Decode con el navegador y re-muestrea fragmentos de distinta frecuencia a 24 kHz.
+  // WAV PCM16 mono. No necesita bibliotecas ni servicios externos.
+  async function joinWavs(blobs, pauseMs) {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) throw new Error('Este navegador no permite unir audio PCM.');
+    const context = new AudioCtx({ sampleRate: 24000 });
+    const rate = context.sampleRate;
+    const segments = [];
+    let frames = 0;
+    const silence = Math.round(rate * pauseMs / 1000);
+    try {
+      for (const blob of blobs) {
+        const decoded = await context.decodeAudioData(await blob.arrayBuffer());
+        const mono = new Float32Array(Math.ceil(decoded.duration * rate));
+        for (let i = 0; i < mono.length; i++) {
+          const pos = i * decoded.sampleRate / rate;
+          const index = Math.floor(pos);
+          const frac = pos - index;
+          let value = 0;
+          for (let c = 0; c < decoded.numberOfChannels; c++) {
+            const channel = decoded.getChannelData(c);
+            value += (channel[index] || 0) * (1 - frac) + (channel[index + 1] || 0) * frac;
+          }
+          mono[i] = value / decoded.numberOfChannels;
+        }
+        segments.push(mono);
+        frames += mono.length;
+      }
+    } finally { await context.close(); }
+    frames += Math.max(0, segments.length - 1) * silence;
+    if (frames * 2 + 44 > MAX_CLONE_OUTPUT_BYTES) throw new Error('Capítulo demasiado grande para un único WAV (máximo 100 MB). Genera capítulos más cortos.');
+    const bytes = new ArrayBuffer(44 + frames * 2);
+    const view = new DataView(bytes);
+    const writeFourCC = (at, str) => { for (let j = 0; j < 4; j++) view.setUint8(at + j, str.charCodeAt(j)); };
+    writeFourCC(0, 'RIFF'); view.setUint32(4, bytes.byteLength - 8, true);
+    writeFourCC(8, 'WAVE'); writeFourCC(12, 'fmt ');
+    view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true);
+    view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    writeFourCC(36, 'data'); view.setUint32(40, frames * 2, true);
+    let offset = 44;
+    for (let seg = 0; seg < segments.length; seg++) {
+      for (const value of segments[seg]) {
+        const clamped = Math.max(-1, Math.min(1, value));
+        view.setInt16(offset, clamped < 0 ? clamped * 32768 : clamped * 32767, true);
+        offset += 2;
+      }
+      if (seg < segments.length - 1) { offset += silence * 2; }
+    }
+    return new Blob([bytes], { type: 'audio/wav' });
+  }
+
+  // Checkpoint por capítulo. Guarda WAVs parciales en IndexedDB, no en localStorage.
+  const bookCheckpoint = {
+    async run(mode, action) {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('voiceCariAudiobooks', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('jobs', { keyPath: 'id' });
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      try {
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction('jobs', mode);
+          const req = action(tx.objectStore('jobs'));
+          let value;
+          req.onsuccess = () => { value = req.result; };
+          tx.oncomplete = () => resolve(value);
+          tx.onabort = () => reject(tx.error || new Error('No se pudo guardar el progreso.'));
+        });
+      } finally { db.close(); }
+    },
+    get() { return this.run('readonly', store => store.get('active')); },
+    put(job) { return this.run('readwrite', store => store.put(job)); },
+    clear() { return this.run('readwrite', store => store.delete('active')); }
+  };
+
+  async function bookSignature(parts, sampleId, language) {
+    const bytes = new TextEncoder().encode(JSON.stringify([parts, sampleId, language]));
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function updateBookRecovery() {
+    const record = await bookCheckpoint.get().catch(() => null);
+    $('#bookResumeHint').textContent = record?.blobs?.length
+      ? `Recuperación disponible: ${record.blobs.length}/${record.parts.length} fragmentos guardados. Usa el mismo texto, muestra e idioma y pulsa Generar.`
+      : 'Sin capítulo pendiente de recuperar.';
+    $('#bookDiscard').disabled = !record;
+    $('#bookRestore').disabled = !record;
+    if (record?.text && !$('#scriptText').value.trim()) $('#bookResumeHint').textContent += ' Puedes restaurar también el texto original.'
+  }
+
+  async function downloadBookMp3() {
+    if (!bookBlob) return showToast('Genera primero un capítulo WAV.');
+    const btn = $('#bookMp3');
+    btn.disabled = true;
+    $('#bookStatus').textContent = 'Convirtiendo WAV a MP3 en el servidor local…';
+    try {
+      const form = new FormData();
+      form.append('audio', bookBlob, 'chapter.wav');
+      const response = await engineFetch(`${validateEngineUrl()}/convert-mp3`, {method:'POST',body:form});
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(String(payload?.detail || `HTTP ${response.status}`).slice(0, 160));
+      }
+      const mp3 = await response.blob();
+      if (mp3.size < 100 || mp3.size > MAX_CLONE_OUTPUT_BYTES) throw new Error('El MP3 generado es inválido.');
+      downloadBlob(`${slugify($('#bookChapter').value)}-sintetico.mp3`, mp3);
+      $('#bookStatus').textContent = 'MP3 generado y descargado correctamente.';
+    } catch (e) {
+      $('#bookStatus').textContent = `Error al convertir MP3: ${String(e?.message || e).slice(0, 160)}`;
+      showToast($('#bookStatus').textContent);
+    } finally { btn.disabled = false; }
+  }
+
+  async function generateBook() {
+    if (cloning || bookController) return showToast('Hay una generación en curso.');
+    if (!$('#cloneConsent').checked) return showToast('Confirma el consentimiento de la muestra de voz.');
+    const text = $('#scriptText').value.trim();
+    if (!text) return showToast('Escribe el capítulo en el Studio antes de generarlo.');
+    const sampleId = $('#cloneSample').value;
+    if (!sampleId) return showToast('Selecciona una muestra autorizada.');
+    let sample;
+    try { sample = await idb.get(sampleId); } catch { /* error de lectura */ }
+    if (!sample?.wav) return showToast('No se ha podido recuperar la muestra.');
+    const parts = splitChapter(text);
+    if (parts.length > 100) return showToast('Máximo 100 fragmentos por capítulo. Divide el manuscrito en capítulos más cortos.');
+    const button = $('#bookStart');
+    button.disabled = true;
+    $('#cloneGo').disabled = true;
+    $('#bookCancel').disabled = false;
+    $('#bookDownload').disabled = true;
+    $('#bookProgress').value = 0;
+    if (bookUrl) { URL.revokeObjectURL(bookUrl); bookUrl = null; }
+    bookBlob = null;
+    $('#bookAudio').hidden = true;
+    bookController = new AbortController();
+    const signal = bookController.signal;
+    let blobs = [];
+    try {
+      const signature = await bookSignature(parts, sampleId, $('#cloneLang').value);
+      const previous = await bookCheckpoint.get().catch(() => null);
+      if (previous && previous.signature !== signature) {
+        throw new Error('Hay un capítulo pendiente distinto. Descárgalo o descarta la recuperación antes de continuar.');
+      }
+      if (previous) {
+        blobs = previous.blobs || [];
+        if (blobs.length > parts.length) throw new Error('Recuperación inconsistente. Descarta el capítulo pendiente.');
+        $('#bookStatus').textContent = `Recuperados ${blobs.length} fragmentos.`;
+      } else {
+        await bookCheckpoint.put({id:'active', signature, parts, blobs, text, language:$('#cloneLang').value, sampleId, chapter:$('#bookChapter').value});
+      }
+      const base = validateEngineUrl();
+      for (let i = blobs.length; i < parts.length; i++) {
+        if (signal.aborted) throw new DOMException('Cancelado', 'AbortError');
+        $('#bookStatus').textContent = `Generando fragmento ${i + 1} de ${parts.length}…`;
+        const form = new FormData();
+        form.append('text', parts[i]);
+        form.append('language', $('#cloneLang').value);
+        form.append('reference', sample.wav, 'reference.wav');
+        const response = await engineFetch(`${base}/clone`, { method: 'POST', body: form, signal });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(`Fragmento ${i + 1}: ${String(payload?.detail || `HTTP ${response.status}`).slice(0, 120)}`);
+        }
+        const blob = await response.blob();
+        if (!(await isValidWavBlob(blob))) throw new Error(`Fragmento ${i + 1}: WAV inválido.`);
+        blobs.push(blob);
+        // Persistencia inmediata: un cierre de pestaña no pierde los fragmentos terminados.
+        try {
+          await bookCheckpoint.put({id:'active', signature, parts, blobs, text, language:$('#cloneLang').value, sampleId, chapter:$('#bookChapter').value});
+        } catch (e) {
+          throw new Error(`No se pudo guardar el fragmento en el almacenamiento local (espacio o permisos): ${e?.message || e}`);
+        }
+        $('#bookProgress').value = Math.round((i + 1) * 90 / parts.length);
+      }
+      $('#bookStatus').textContent = 'Uniendo audio del capítulo…';
+      const finalAudio = await joinWavs(blobs, Number($('#bookPause').value));
+      if (signal.aborted) throw new DOMException('Cancelado', 'AbortError');
+      bookBlob = await tagSyntheticProvenance(finalAudio);
+      bookUrl = URL.createObjectURL(bookBlob);
+      $('#bookAudio').src = bookUrl;
+      $('#bookAudio').hidden = false;
+      $('#bookDownload').disabled = false;
+      $('#bookMp3').disabled = false;
+      $('#bookProgress').value = 100;
+      $('#bookStatus').textContent = `Capítulo listo: ${parts.length} fragmentos, ${(bookBlob.size / 1048576).toFixed(1)} MB · voz sintética.`;
+      await bookCheckpoint.clear();
+      showToast('Capítulo generado. Descarga el WAV o conviértelo a MP3.');
+    } catch (error) {
+      $('#bookStatus').textContent = error?.name === 'AbortError' ? 'Generación cancelada.' : `Error: ${String(error?.message || error).slice(0,160)}`;
+      showToast($('#bookStatus').textContent);
+    } finally {
+      bookController = null;
+      button.disabled = false;
+      $('#cloneGo').disabled = false;
+      $('#bookCancel').disabled = true;
+      updateBookRecovery();
+    }
+  }
+
+  function initBook() {
+    $('#bookStart').addEventListener('click', generateBook);
+    $('#bookMp3').addEventListener('click', downloadBookMp3);
+    $('#bookRestore').addEventListener('click', async () => {
+      const record = await bookCheckpoint.get().catch(() => null);
+      if (!record) return showToast('No hay capítulo pendiente.');
+      if (!record.text || !record.sampleId) return showToast('Esta recuperación antigua no contiene texto ni referencia. Vuelve a introducir el texto original.');
+      $('#scriptText').value = record.text;
+      $('#bookChapter').value = record.chapter || 'Capitulo 01';
+      $('#cloneLang').value = record.language || $('#cloneLang').value;
+      if ([...$('#cloneSample').options].some(o => o.value === record.sampleId)) {
+        $('#cloneSample').value = record.sampleId;
+        showToast('Texto y muestra restaurados. Confirma consentimiento y pulsa Generar capítulo.');
+      } else { showToast('Texto restaurado, pero debes volver a importar o elegir la muestra original.'); }
+      document.querySelector('[data-section="studio"]')?.click();
+    });
+    $('#bookDiscard').addEventListener('click', async () => {
+      if (bookController) return showToast('Cancela la generación antes de descartar.');
+      await bookCheckpoint.clear();
+      await updateBookRecovery();
+      showToast('Progreso pendiente descartado.');
+    });
+    updateBookRecovery();
+    $('#bookCancel').addEventListener('click', () => bookController?.abort());
+    $('#bookDownload').addEventListener('click', () => {
+      if (bookBlob) downloadBlob(`${slugify($('#bookChapter').value)}-sintetico.wav`, bookBlob);
+    });
+    window.addEventListener('beforeunload', () => { bookController?.abort(); if (bookUrl) URL.revokeObjectURL(bookUrl); });
+  }
+
   /* ── Fusión de muestras seleccionadas en una referencia larga ──── */
   async function mergeSelected() {
     const ids = [...document.querySelectorAll('.sample-check:checked')].map(c => c.dataset.check);
@@ -1999,6 +2255,7 @@
     initProjects();
     initIntegrations();
     initClone();
+    initBook();
     initReset();
     initPwa();
   });

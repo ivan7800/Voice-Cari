@@ -1,4 +1,4 @@
-# Motor local Voice Cari 3.3.2
+# Motor local Voice Cari 4.1.0
 
 Servidor FastAPI opcional para el frontend Voice Cari. En modo demo genera un tono; en modo real integra XTTS-v2.
 
@@ -52,3 +52,7 @@ Desde la raíz del proyecto:
 ```bash
 python tests/smoke_server.py
 ```
+
+## Conversión MP3 (4.1)
+
+Instala FFmpeg y añádelo al PATH del sistema. El endpoint local `POST /convert-mp3` recibe un WAV en campo multipart `audio` y devuelve MP3 a 192 kb/s. Los archivos temporales se eliminan al finalizar.
