@@ -1,4 +1,6 @@
-# Voice Cari v3.3.2 — Authorized Voice Studio
+> **Versión 4.1.0**: producción por capítulos, recuperación local de fragmentos y conversión MP3 mediante el servidor local. Véase [README-V4.1.md](README-V4.1.md).
+
+# Voice Cari v4.0.0 — Authorized Voice Studio
 
 Voice Cari es un estudio de voz sintética autorizada del ecosistema **Universo 404**. Incluye:
 

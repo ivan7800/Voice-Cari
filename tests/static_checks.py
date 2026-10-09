@@ -9,7 +9,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "3.3.2"
+EXPECTED_VERSION = "4.1.0"
 
 
 class IdParser(HTMLParser):
@@ -74,7 +74,7 @@ def main() -> int:
     check(f"v{EXPECTED_VERSION}" in html, "index.html muestra la versión actual")
     check(f"APP_VERSION = '{EXPECTED_VERSION}'" in app, "app.js declara la versión actual")
     check(f'APP_VERSION = "{EXPECTED_VERSION}"' in server, "el servidor declara la versión actual")
-    check("voice-cari-v10" in sw, "el service worker usa una caché nueva para la versión")
+    check("voice-cari-v12" in sw, "el service worker usa una caché nueva para la versión")
 
     forbidden = ["eval(", "new Function(", "innerHTML = user", "allow_origins=[\"*\"]", "shell=True"]
     hits = [token for token in forbidden if token in app or token in server]

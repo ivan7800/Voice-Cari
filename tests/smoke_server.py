@@ -109,7 +109,7 @@ def main() -> int:
         health = json.loads(body)
         assert_true(health["status"] == "ok", "GET /health responde ok")
         assert_true(health["demo"] is True, "el servidor está en modo demo")
-        assert_true(health["version"] == "3.3.2", "la API publica la versión 3.3.2")
+        assert_true(health["version"] == "4.1.0", "la API publica la versión 4.1.0")
 
         status, _, _ = request(f"{base}/health", headers={"Origin": "https://evil.example"})
         assert_true(status == 403, "un origen web no autorizado queda bloqueado")

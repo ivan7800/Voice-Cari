@@ -1,4 +1,4 @@
-"""Voice Cari 3.3.2 — servidor local opcional para XTTS-v2.
+"""Voice Cari 4.0.0 — servidor local opcional para XTTS-v2.
 
 Endpoints:
     GET  /health
@@ -15,6 +15,8 @@ import logging
 import math
 import os
 import re
+import shutil
+import subprocess
 import struct
 import sys
 import tempfile
@@ -31,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-APP_VERSION = "3.3.2"
+APP_VERSION = "4.1.0"
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
 DEMO = os.environ.get("VOICE_CARI_DEMO", "") == "1"
 HOST = os.environ.get("VOICE_CARI_HOST", "127.0.0.1").strip()
@@ -118,7 +120,7 @@ async def security_middleware(request: Request, call_next):
     origin = request.headers.get("origin")
     if not _origin_allowed(origin):
         return JSONResponse(status_code=403, content={"detail": "Origen no autorizado."})
-    if request.url.path == "/clone":
+    if request.url.path in {"/clone", "/convert-mp3"}:
         content_length = request.headers.get("content-length")
         if content_length:
             try:
@@ -343,6 +345,44 @@ async def clone(
         media_type="audio/wav",
         headers={"X-Voice-Cari-Synthetic": "1", "Content-Disposition": 'inline; filename="voice-cari.wav"'},
     )
+
+
+
+@app.post("/convert-mp3")
+async def convert_mp3(audio: UploadFile = File(...)):
+    """Convierte WAV mono PCM válido a MP3, localmente. Requiere FFmpeg instalado."""
+    try:
+        data = await audio.read(MAX_OUTPUT_BYTES + 1)
+    finally:
+        await audio.close()
+    if not data or len(data) > MAX_OUTPUT_BYTES:
+        raise HTTPException(413, "WAV vacío o demasiado grande (máximo 100 MB).")
+    _validate_wav(data, require_signal=True)
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise HTTPException(503, "FFmpeg no instalado o no disponible en PATH.")
+    try:
+        with tempfile.TemporaryDirectory(prefix="voice-cari-") as dirname:
+            source = Path(dirname) / "input.wav"
+            target = Path(dirname) / "output.mp3"
+            source.write_bytes(data)
+            result = await run_in_threadpool(
+                subprocess.run,
+                [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+                 "-map", "0:a:0", "-vn", "-codec:a", "libmp3lame", "-b:a", "192k", str(target)],
+                capture_output=True, timeout=180, check=False,
+            )
+            if result.returncode != 0 or not target.is_file():
+                raise HTTPException(422, "FFmpeg no pudo convertir el WAV a MP3.")
+            content = target.read_bytes()
+            if not content or len(content) > MAX_OUTPUT_BYTES:
+                raise HTTPException(422, "MP3 inválido o demasiado grande.")
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(504, "La conversión MP3 excedió los 180 segundos.") from exc
+    return Response(content=content, media_type="audio/mpeg", headers={
+        "Content-Disposition": 'attachment; filename="voice-cari-sintetico.mp3"',
+        "X-Voice-Cari-Synthetic": "1", "Cache-Control": "no-store",
+    })
 
 
 def _public_file(name: str) -> FileResponse:

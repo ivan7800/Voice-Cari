@@ -1,3 +1,8 @@
+## 4.1.0 (2026-10-09)
+- Recuperación de fragmentos guardados en IndexedDB.
+- Exportación MP3 mediante FFmpeg en el servidor local.
+- Validaciones y pruebas de seguridad de conversión.
+
 # Changelog — Voice Cari
 
 ## v3.3.0 (2026-07-14) — Calidad, procesado y consentimiento reforzado
